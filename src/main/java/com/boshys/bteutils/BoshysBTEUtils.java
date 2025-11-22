@@ -9,8 +9,7 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
-import java.awt.*;
-import java.awt.datatransfer.DataFlavor;
+import java.util.Objects;
 
 public class BoshysBTEUtils implements ClientModInitializer {
 
@@ -18,55 +17,55 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        // Register keybind (default unbound)
         tpllKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.bteutils.tpll",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_P,
+                InputUtil.UNKNOWN_KEY.getCode(), // default unbound
                 "category.bteutils"
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (client == null || client.player == null || client.world == null || client.player.networkHandler == null) return;
+
             while (tpllKeybind.wasPressed()) {
-                String clip = getClipboard();
-                if (clip == null || clip.length() == 0) {
-                    if (client.player != null) {
-                        client.player.sendMessage(Text.literal("[BoshysBTEUtils] Clipboard empty!"), false);
+                try {
+                    String clip = getClipboard(client);
+                    if (clip == null || clip.isEmpty()) {
+                        notifyError(client, "§cClipboard empty!");
+                        continue;
                     }
-                    continue;
+
+                    String commandNoSlash = "tpll " + clip.trim();
+                    client.player.networkHandler.sendChatCommand(commandNoSlash);
+
+                    // No success message
+                } catch (Throwable t) {
+                    notifyError(client, "§cError reading clipboard or sending command.");
                 }
-                sendTpllCommand(client, clip);
             }
         });
     }
 
-    private String getClipboard() {
+    private String getClipboard(MinecraftClient client) {
         try {
-            String data = (String) Toolkit.getDefaultToolkit()
-                    .getSystemClipboard()
-                    .getData(DataFlavor.stringFlavor);
-            if (data != null) {
-                return data.trim();
-            }
-        } catch (Exception e) {
-            // optional: log or ignore
+            String data = client.keyboard.getClipboard();
+            if (data == null) return null;
+
+            String cleaned = data.replace("\r\n", "\n").replace("\r", "\n").trim();
+            int nl = cleaned.indexOf('\n');
+            if (nl >= 0) cleaned = cleaned.substring(0, nl).trim();
+            cleaned = cleaned.replaceAll("\\s*,\\s*", ",").replaceAll("\\s+", " ");
+            return cleaned.isEmpty() ? null : cleaned;
+        } catch (Throwable t) {
+            return null;
         }
-        return null;
     }
 
-    private void sendTpllCommand(MinecraftClient client, String clipboard) {
+    private void notifyError(MinecraftClient client, String msg) {
         if (client == null || client.player == null) return;
-
-        String commandNoSlash = "tpll " + clipboard.trim();
-
-        try {
-            // Preferred: send a command packet (no leading slash)
-            client.player.networkHandler.sendChatCommand(commandNoSlash);
-        } catch (Exception ex) {
-            // Fallback: send raw chat with slash
-            client.player.networkHandler.sendChatMessage("/" + commandNoSlash);
-        }
-
-        // Feedback in chat
-        client.player.sendMessage(Text.literal("[BoshysBTEUtils] Ran /tpll " + clipboard.trim()), false);
+        String safe = Objects.toString(msg, "");
+        if (safe.length() > 300) safe = safe.substring(0, 300) + "...";
+        client.player.sendMessage(Text.literal(safe), false);
     }
 }
