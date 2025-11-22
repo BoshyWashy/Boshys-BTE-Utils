@@ -28,9 +28,9 @@ public class BoshysBTEUtils implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (tpllKeybind.wasPressed()) {
                 String clip = getClipboard();
-                if (clip == null || clip.isBlank()) {
+                if (clip == null || clip.length() == 0) {
                     if (client.player != null) {
-                        client.player.sendMessage(Text.literal("[BTEUtils] Clipboard empty!"), false);
+                        client.player.sendMessage(Text.literal("[BoshysBTEUtils] Clipboard empty!"), false);
                     }
                     continue;
                 }
@@ -41,12 +41,16 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     private String getClipboard() {
         try {
-            return (String) Toolkit.getDefaultToolkit()
+            String data = (String) Toolkit.getDefaultToolkit()
                     .getSystemClipboard()
                     .getData(DataFlavor.stringFlavor);
+            if (data != null) {
+                return data.trim();
+            }
         } catch (Exception e) {
-            return null;
+            // optional: log or ignore
         }
+        return null;
     }
 
     private void sendTpllCommand(MinecraftClient client, String clipboard) {
@@ -55,9 +59,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
         String commandNoSlash = "tpll " + clipboard.trim();
 
         try {
+            // Preferred: send a command packet (no leading slash)
             client.player.networkHandler.sendChatCommand(commandNoSlash);
         } catch (Exception ex) {
+            // Fallback: send raw chat with slash
             client.player.networkHandler.sendChatMessage("/" + commandNoSlash);
         }
+
+        // Feedback in chat
+        client.player.sendMessage(Text.literal("[BoshysBTEUtils] Ran /tpll " + clipboard.trim()), false);
     }
 }
