@@ -1,0 +1,50 @@
+plugins {
+    id 'fabric-loom' version '1.7.4'
+    id "java"
+}
+
+group = "com.boshys.bteutils"
+version = "1.0.0"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+def minecraftVersion = "1.21.4"
+def loaderVersion = "0.16.7"
+def fabricApiVersion = "0.110.0+1.21.4"
+def yarnVersion = "${minecraftVersion}+build.1"
+
+base {
+    archivesName = "Boshys-BTE-Utils"
+}
+
+repositories {
+    mavenCentral()
+    maven { url = "https://maven.fabricmc.net/" }
+    maven { url = "https://maven.terraformersmc.com/releases" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraftVersion}"
+    mappings "net.fabricmc:yarn:${yarnVersion}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${loaderVersion}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+    modImplementation "com.terraformersmc:modmenu:11.0.2"
+
+    implementation "com.google.code.gson:gson:2.10.1"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 21
+}

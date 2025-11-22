@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "bteutils",
+  "version": "1.0.0",
+  "name": "Boshys BTE Utils",
+  "description": "Adds a keybind to run /tpll <clipboard>.",
+  "authors": ["BoshyWashy"],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.boshys.bteutils.BoshysBTEUtils"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "1.21.4"
+  },
+  "icon": "assets/bteutils/icon.png"
+}
