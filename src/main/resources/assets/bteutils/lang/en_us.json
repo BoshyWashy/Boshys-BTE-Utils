@@ -13,7 +13,7 @@
   "text.autoconfig.boshysbteutils.option.enableMarkers": "Enable Teleport Markers",
   "text.autoconfig.boshysbteutils.option.enableMarkers.@Tooltip": "Show custom coloured cube at teleport destination",
   "text.autoconfig.boshysbteutils.option.enableAutoTpllMarkers": "Auto TPLL Markers",
-  "text.autoconfig.boshysbteutils.option.enableAutoTpllMarkers.@Tooltip": "Automatically place markers when using TPLL keybind",
+  "text.autoconfig.boshysbteutils.option.enableAutoTpllMarkers.@Tooltip": "Automatically place markers when using TPLL keybind or command",
   "text.autoconfig.boshysbteutils.option.markerColour": "Marker Colour (Hex)",
   "text.autoconfig.boshysbteutils.option.markerColour.@Tooltip": "Colour in hex format (e.g., 0xFF0000 for red)",
   "text.autoconfig.boshysbteutils.option.markerOpacity": "Marker Opacity",
@@ -27,5 +27,7 @@
   "text.autoconfig.boshysbteutils.option.lineOpacity": "Line Opacity",
   "text.autoconfig.boshysbteutils.option.lineOpacity.@Tooltip": "Opacity of connecting lines (0.0 to 1.0)",
   "text.autoconfig.boshysbteutils.option.lineThickness": "Line Distance",
-  "text.autoconfig.boshysbteutils.option.lineThickness.@Tooltip": "Thickness of connecting lines (0.1 to 10.0)"
+  "text.autoconfig.boshysbteutils.option.lineThickness.@Tooltip": "Thickness of connecting lines (0.1 to 10.0)",
+  "text.autoconfig.boshysbteutils.option.savedMarkersFolderPath": "Saved Markers Folder",
+  "text.autoconfig.boshysbteutils.option.savedMarkersFolderPath.@Tooltip": "Custom folder path for saved marker files (leave empty for default)"
 }
