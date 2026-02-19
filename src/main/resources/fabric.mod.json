@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "bteutils",
-  "version": "1.0.4",
+  "id": "boshysbteutils",
+  "version": "1.0.0",
   "name": "Boshys BTE Utils",
-  "description": "Adds a keybind to run /tpll <clipboard>.",
+  "description": "Adds a keybind for TPLL, along with markers to place down and keep track of where you have previously TPLLed to.",
   "authors": ["BoshyWashy"],
   "contact": {},
   "license": "MIT",
@@ -11,12 +11,19 @@
   "entrypoints": {
     "client": [
       "com.boshys.bteutils.BoshysBTEUtils"
+    ],
+    "modmenu": [
+      "com.boshys.bteutils.integration.ModMenuIntegration"
     ]
   },
   "depends": {
     "fabricloader": ">=0.16.0",
     "fabric-api": "*",
-    "minecraft": "1.21.4"
+    "minecraft": "1.21.10",
+    "cloth-config": "*"
   },
-  "icon": "assets/bteutils/icon.png"
+  "suggests": {
+    "modmenu": "*"
+  },
+  "icon": "assets/boshysbteutils/icon.png"
 }
