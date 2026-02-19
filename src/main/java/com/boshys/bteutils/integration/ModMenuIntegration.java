@@ -7,6 +7,7 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 import me.shedaniel.autoconfig.AutoConfig;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.option.ControlsOptionsScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -15,6 +16,10 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.text.Text;
 
 import java.awt.Color;
+import java.io.File;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 @Environment(EnvType.CLIENT)
 public class ModMenuIntegration implements ModMenuApi {
@@ -54,6 +59,12 @@ public class ModMenuIntegration implements ModMenuApi {
                     Text.literal("Line Connection Settings").styled(style -> style.withBold(true)),
                     button -> this.client.setScreen(new LineConnectionScreen(this))
             ).dimensions(centerX - 150, startY + 60, 300, 20).build());
+
+            // Saved Markers section - White and Bold
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Saved Markers").styled(style -> style.withBold(true)),
+                    button -> this.client.setScreen(new SavedMarkersScreen(this))
+            ).dimensions(centerX - 150, startY + 90, 300, 20).build());
 
             // Done button
             this.addDrawableChild(ButtonWidget.builder(
@@ -214,6 +225,46 @@ public class ModMenuIntegration implements ModMenuApi {
             });
             this.addDrawableChild(scaleField);
 
+            // Update Marker Design button - NOT BOLD (as requested)
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Update Marker Design"), // Removed .styled(style -> style.withBold(true))
+                    button -> {
+                        if (!config.enableMarkers) {
+                            if (this.client.player != null) {
+                                this.client.player.sendMessage(Text.literal("§cMarkers disabled in config!"), false);
+                            }
+                            return;
+                        }
+
+                        if (BoshysBTEUtils.markers.isEmpty()) {
+                            if (this.client.player != null) {
+                                this.client.player.sendMessage(Text.literal("§cNo markers to update!"), false);
+                            }
+                            return;
+                        }
+
+                        int updatedCount = 0;
+
+                        // If a marker is selected, only update that one
+                        if (BoshysBTEUtils.selectedMarker != null) {
+                            BoshysBTEUtils.updateMarkerDesign(BoshysBTEUtils.selectedMarker);
+                            updatedCount = 1;
+                            if (this.client.player != null) {
+                                this.client.player.sendMessage(Text.literal("§aUpdated selected marker's design!"), false);
+                            }
+                        } else {
+                            // Update all markers
+                            for (BoshysBTEUtils.TeleportMarker marker : BoshysBTEUtils.markers) {
+                                BoshysBTEUtils.updateMarkerDesign(marker);
+                                updatedCount++;
+                            }
+                            if (this.client.player != null) {
+                                this.client.player.sendMessage(Text.literal("§aUpdated " + updatedCount + " markers to current config design!"), false);
+                            }
+                        }
+                    }
+            ).dimensions(centerX - 150, startY + 150, 300, 20).build());
+
             // Clear markers button
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Clear All Markers"),
@@ -223,57 +274,50 @@ public class ModMenuIntegration implements ModMenuApi {
                             this.client.player.sendMessage(Text.literal("§aCleared all TPLL markers!"), false);
                         }
                     }
-            ).dimensions(centerX - 150, startY + 155, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 180, 300, 20).build());
 
             // Help section - How to add markers
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("How to Add Markers:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 195, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 220, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Use /boshys-bt-utils addMarker"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 220, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 245, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Or press your Add Marker keybind"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 238, 300, 15).build());
-
-            /*
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal("TPLL auto-adds markers at destination"),
-                    button -> {}
-            ).dimensions(centerX - 150, startY + 231, 300, 15).build());
-            */
+            ).dimensions(centerX - 150, startY + 263, 300, 15).build());
 
             // Help section - How to clear markers
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("How to Clear Markers:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 286, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 311, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Use /boshys-bt-utils clearMarkers"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 311, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 336, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Or press your Clear Markers keybind"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 329, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 354, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Or use the button above"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 347, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 372, 300, 15).build());
 
             // Back button - Now part of scrollable content
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Back"),
                     button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 385, 200, 20).build());
+            ).dimensions(centerX - 100, startY + 410, 200, 20).build());
         }
 
         @Override
@@ -282,7 +326,7 @@ public class ModMenuIntegration implements ModMenuApi {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
                 // Max scroll calculated based on content height minus screen height
-                int contentHeight = 425;
+                int contentHeight = 450; // Increased for new button
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
@@ -459,6 +503,166 @@ public class ModMenuIntegration implements ModMenuApi {
                 if (scrollOffset < 0) scrollOffset = 0;
                 // Max scroll calculated based on content height minus screen height
                 int contentHeight = 400;
+                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+                rebuildButtons();
+                return true;
+            }
+            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+
+        @Override
+        public void close() {
+            this.client.setScreen(parent);
+        }
+    }
+
+    // Saved Markers Screen - NEW
+    public static class SavedMarkersScreen extends Screen {
+        private final Screen parent;
+        private int scrollOffset = 0;
+        private TextFieldWidget pathField;
+
+        public SavedMarkersScreen(Screen parent) {
+            super(Text.literal("Saved Markers"));
+            this.parent = parent;
+        }
+
+        @Override
+        protected void init() {
+            rebuildButtons();
+        }
+
+        private void rebuildButtons() {
+            this.clearChildren();
+            int centerX = this.width / 2;
+            int startY = this.height / 6 - scrollOffset;
+
+            BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+
+            // Current save location
+            Path currentPath = BoshysBTEUtils.getMarkersSavePath();
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Current Save Location:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(currentPath.toString()),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 25, 300, 20).build());
+
+            // Change save path
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Custom Path (blank for default):"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 55, 300, 20).build());
+
+            pathField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 80, 300, 20, Text.literal("Path"));
+            pathField.setText(config.savedMarkersFolderPath != null ? config.savedMarkersFolderPath : "");
+            pathField.setChangedListener(text -> {
+                config.savedMarkersFolderPath = text;
+                // Update path immediately
+                if (BoshysBTEUtils.INSTANCE != null) {
+                    BoshysBTEUtils.INSTANCE.updateMarkersSavePath();
+                }
+            });
+            this.addDrawableChild(pathField);
+
+            // Commands help section
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Available Commands:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 120, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("/boshys-bt-utils saveMarkers <name> [radius]"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 145, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("  Saves markers to file. Radius optional."),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 163, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("/boshys-bt-utils updateMarkers <name> [radius]"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 186, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("  Adds new markers to existing file."),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 204, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("/boshys-bt-utils load <name>"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 227, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("  Loads markers from file to world."),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 245, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("/boshys-bt-utils hide <name>"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 268, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("  Hides loaded markers (keeps file)."),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 286, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("/boshys-bt-utils delete <name>"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 309, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("  Permanently deletes the file."),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 327, 300, 15).build());
+
+            // Loaded files section
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Currently Loaded Files:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 360, 300, 20).build());
+
+            int fileY = startY + 385;
+            if (BoshysBTEUtils.loadedFiles.isEmpty()) {
+                this.addDrawableChild(ButtonWidget.builder(
+                        Text.literal("No files currently loaded"),
+                        button -> {}
+                ).dimensions(centerX - 150, fileY, 300, 15).build());
+                fileY += 20;
+            } else {
+                for (String filename : BoshysBTEUtils.loadedFiles.keySet()) {
+                    BoshysBTEUtils.SavedMarkerFile file = BoshysBTEUtils.loadedFiles.get(filename);
+                    this.addDrawableChild(ButtonWidget.builder(
+                            Text.literal("• " + filename + " (" + file.markers.size() + " markers)"),
+                            button -> {}
+                    ).dimensions(centerX - 150, fileY, 300, 15).build());
+                    fileY += 18;
+                }
+            }
+
+            // Back button
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Back"),
+                    button -> this.client.setScreen(parent)
+            ).dimensions(centerX - 100, fileY + 20, 200, 20).build());
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+            if (verticalAmount != 0) {
+                scrollOffset -= (int)(verticalAmount * 20);
+                if (scrollOffset < 0) scrollOffset = 0;
+                // Calculate max scroll based on content
+                int contentHeight = 500;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
