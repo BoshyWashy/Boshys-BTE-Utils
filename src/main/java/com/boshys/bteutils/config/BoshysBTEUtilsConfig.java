@@ -55,6 +55,11 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Line thickness/width (default: 0.1)")
     public float lineThickness = 0.1f;
 
+    // Saved Markers Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Custom folder path for saved marker files (leave empty for default: config/boshysbteutils/markers)")
+    public String savedMarkersFolderPath = "";
+
     @Override
     public void validatePostLoad() {
         if (commandPrefix == null || commandPrefix.trim().isEmpty()) {
