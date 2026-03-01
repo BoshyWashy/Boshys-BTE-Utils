@@ -38,6 +38,15 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Marker scale/size (default: 0.05 = small cube)")
     public float markerScale = 0.05f;
 
+    // Clear Confirmation Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Enable confirmation prompt when clearing many markers")
+    public boolean enableClearConfirmation = true;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Maximum markers before requiring confirmation (default: 3)")
+    public int clearConfirmLimit = 3;
+
     // Line Connection Settings
     @ConfigEntry.Gui.Tooltip
     @Comment("Enable automatic line connections between markers")
@@ -59,6 +68,15 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @ConfigEntry.Gui.Tooltip
     @Comment("Custom folder path for saved marker files (leave empty for default: config/boshysbteutils/markers)")
     public String savedMarkersFolderPath = "";
+
+    // Autosave Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Enable autosave functionality")
+    public boolean enableAutosave = true;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Autosave interval in minutes (0 or empty = only on disconnect)")
+    public int autosaveIntervalMinutes = 0;
 
     @Override
     public void validatePostLoad() {
@@ -82,5 +100,13 @@ public class BoshysBTEUtilsConfig implements ConfigData {
         // Validate line thickness
         if (lineThickness < 0.1f) lineThickness = 0.1f;
         if (lineThickness > 10.0f) lineThickness = 10.0f;
+
+        // Validate clear confirmation limit
+        if (clearConfirmLimit < 1) clearConfirmLimit = 1;
+        if (clearConfirmLimit > 1000) clearConfirmLimit = 1000;
+
+        // Validate autosave interval
+        if (autosaveIntervalMinutes < 0) autosaveIntervalMinutes = 0;
+        if (autosaveIntervalMinutes > 1440) autosaveIntervalMinutes = 1440; // Max 24 hours
     }
 }

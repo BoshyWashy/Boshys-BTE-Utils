@@ -166,7 +166,9 @@ public class CustomParticleRenderer {
             // Calculate scale - if selected, make it slightly larger (20% bigger)
             float baseScale = marker.scale;
             float scale = baseScale;
-            if (marker == BoshysBTEUtils.selectedMarker) {
+            boolean isSelected = BoshysBTEUtils.selectedMarkers.contains(marker);
+
+            if (isSelected) {
                 scale = baseScale * 1.2f; // 20% larger when selected
                 // Make the whole marker lighter when selected
                 r = Math.min(1.0f, r + 0.3f);
@@ -189,7 +191,44 @@ public class CustomParticleRenderer {
             // Build the cube using the vertex consumer
             buildCube(buffer, matrices, scale, r, g, b, a);
 
+            // If selected and multiple markers selected, render a highlight ring
+            if (isSelected && BoshysBTEUtils.selectedMarkers.size() > 1) {
+                renderSelectionRing(buffer, matrices, scale * 1.5f, r, g, b, 0.5f);
+            }
+
             matrices.pop();
+        }
+    }
+
+    private static void renderSelectionRing(VertexConsumer buffer, MatrixStack matrices, float scale, float r, float g, float b, float a) {
+        MatrixStack.Entry entry = matrices.peek();
+
+        // Draw a simple ring around the marker to indicate multi-selection
+        int segments = 16;
+        float ringRadius = scale;
+        float ringY = 0;
+
+        for (int i = 0; i < segments; i++) {
+            double angle1 = (Math.PI * 2 * i) / segments;
+            double angle2 = (Math.PI * 2 * (i + 1)) / segments;
+
+            float x1 = (float)(Math.cos(angle1) * ringRadius);
+            float z1 = (float)(Math.sin(angle1) * ringRadius);
+            float x2 = (float)(Math.cos(angle2) * ringRadius);
+            float z2 = (float)(Math.sin(angle2) * ringRadius);
+
+            // Draw line segment
+            buffer.vertex(entry.getPositionMatrix(), x1, ringY, z1)
+                    .color(r, g, b, a)
+                    .light(15728880)
+                    .overlay(0)
+                    .normal(entry, 0, 1, 0);
+
+            buffer.vertex(entry.getPositionMatrix(), x2, ringY, z2)
+                    .color(r, g, b, a)
+                    .light(15728880)
+                    .overlay(0)
+                    .normal(entry, 0, 1, 0);
         }
     }
 
