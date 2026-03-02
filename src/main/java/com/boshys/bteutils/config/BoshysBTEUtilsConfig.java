@@ -78,6 +78,23 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Autosave interval in minutes (0 or empty = only on disconnect)")
     public int autosaveIntervalMinutes = 0;
 
+    // KML Import Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Custom folder path for KML files (leave empty to use same as marker save location)")
+    public String kmlFolderPath = "";
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Delay between KML import operations in ticks (default: 3, min: 1, max: 100)")
+    public int kmlImportDelayTicks = 3;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Delay before starting KML import in seconds (default: 1, min: 0, max: 10)")
+    public int kmlImportStartDelaySeconds = 1;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Commands to run after each TPLL during KML import (semicolon separated, e.g., //pos1;//pos2)")
+    public String kmlPostImportCommands = "";
+
     @Override
     public void validatePostLoad() {
         if (commandPrefix == null || commandPrefix.trim().isEmpty()) {
@@ -108,5 +125,18 @@ public class BoshysBTEUtilsConfig implements ConfigData {
         // Validate autosave interval
         if (autosaveIntervalMinutes < 0) autosaveIntervalMinutes = 0;
         if (autosaveIntervalMinutes > 1440) autosaveIntervalMinutes = 1440; // Max 24 hours
+
+        // Validate KML import delay
+        if (kmlImportDelayTicks < 1) kmlImportDelayTicks = 1;
+        if (kmlImportDelayTicks > 100) kmlImportDelayTicks = 100;
+
+        // Validate KML start delay
+        if (kmlImportStartDelaySeconds < 0) kmlImportStartDelaySeconds = 0;
+        if (kmlImportStartDelaySeconds > 10) kmlImportStartDelaySeconds = 10;
+
+        // Validate post-import commands
+        if (kmlPostImportCommands == null) {
+            kmlPostImportCommands = "";
+        }
     }
 }

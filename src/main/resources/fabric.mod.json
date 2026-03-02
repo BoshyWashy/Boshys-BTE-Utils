@@ -25,5 +25,5 @@
   "suggests": {
     "modmenu": "*"
   },
-  "icon": "assets/boshysbteutils/icon.png"
+  "icon": "assets/bteutils/icon.png"
 }

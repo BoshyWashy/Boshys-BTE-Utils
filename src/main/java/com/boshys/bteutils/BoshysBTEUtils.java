@@ -18,6 +18,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.ClickEvent;
 import net.minecraft.text.HoverEvent;
@@ -34,6 +35,10 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -46,9 +51,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
@@ -106,6 +114,16 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private long lastAutosaveTime = 0;
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyyMMdd_HHmmss");
 
+    // KML Import tracking
+    private boolean isKmlImporting = false;
+    private boolean kmlImportWaitingToStart = false;
+    private int kmlImportStartDelayTicks = 0;
+    private List<KmlPoint> pendingKmlPoints = new ArrayList<>();
+    private int kmlImportTickCounter = 0;
+    private int kmlCurrentPointIndex = 0;
+    private String currentKmlFileName = "";
+    private List<String> kmlPostCommandsList = new ArrayList<>();
+
     // Suggestion providers for filenames
     private static final SuggestionProvider<FabricClientCommandSource> SAVED_FILE_SUGGESTIONS = (context, builder) -> {
         return CompletableFuture.completedFuture(suggestSavedFiles(builder, false, false));
@@ -124,7 +142,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         return CompletableFuture.completedFuture(suggestSavedFiles(builder, true, false));
     };
 
-    // Suggestion provider for merge files (allows multiple)
+    // Suggestion provider for merge files (allows multiple) - now includes all files every time
     private static final SuggestionProvider<FabricClientCommandSource> MERGE_FILE_SUGGESTIONS = (context, builder) -> {
         return CompletableFuture.completedFuture(suggestSavedFiles(builder, true, true));
     };
@@ -139,6 +157,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
             builder.suggest("excludeCachedMarkers");
         }
         return CompletableFuture.completedFuture(builder.build());
+    };
+
+    // Suggestion provider for KML files
+    private static final SuggestionProvider<FabricClientCommandSource> KML_FILE_SUGGESTIONS = (context, builder) -> {
+        return CompletableFuture.completedFuture(suggestKmlFiles(builder));
     };
 
     private static Suggestions suggestSavedFiles(SuggestionsBuilder builder, boolean includeAll, boolean includeAutosave) {
@@ -157,8 +180,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             if (files != null) {
                 for (File file : files) {
                     String name = file.getName().replace(".json", "");
-                    // For load command: show files that are NOT currently loaded (including hidden ones)
-                    // For delete command: show all files
+                    // Always show all files for merge suggestions, filter for others
                     if (includeAll || !loadedFiles.containsKey(name)) {
                         if (name.toLowerCase().startsWith(remaining)) {
                             builder.suggest(name);
@@ -175,6 +197,28 @@ public class BoshysBTEUtils implements ClientModInitializer {
         for (String name : loadedFiles.keySet()) {
             if (name.toLowerCase().startsWith(remaining)) {
                 builder.suggest(name);
+            }
+        }
+        return builder.build();
+    }
+
+    private static Suggestions suggestKmlFiles(SuggestionsBuilder builder) {
+        String remaining = builder.getRemaining().toLowerCase();
+        Path kmlPath = getKmlSavePath();
+        File dir = kmlPath.toFile();
+
+        if (dir.exists() && dir.isDirectory()) {
+            File[] files = dir.listFiles((d, name) -> {
+                String lowerName = name.toLowerCase();
+                return lowerName.endsWith(".kml") || lowerName.endsWith(".KML");
+            });
+            if (files != null) {
+                for (File file : files) {
+                    String name = file.getName().replace(".kml", "").replace(".KML", "").replace(".kml", "").replace(".KML", "");
+                    if (name.toLowerCase().startsWith(remaining)) {
+                        builder.suggest(name);
+                    }
+                }
             }
         }
         return builder.build();
@@ -427,14 +471,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
                                         String filename = StringArgumentType.getString(context, "filename");
                                         return deleteMarkerFile(context, filename);
                                     })))
-                    // Merge command - NEW FORMAT
+                    // Merge command - Fixed to not suggest for mergedFileName but suggest for all source files
                     .then(ClientCommandManager.literal("mergeMarkers")
                             .then(ClientCommandManager.argument("mergedFileName", StringArgumentType.string())
-                                    .suggests(ALL_FILE_SUGGESTIONS) // Allow any existing file or new name
+                                    // No suggestions for mergedFileName - user can type any name
                                     .then(ClientCommandManager.argument("includeCached", StringArgumentType.string())
                                             .suggests(INCLUDE_EXCLUDE_SUGGESTIONS)
                                             .then(ClientCommandManager.argument("filename", StringArgumentType.string())
-                                                    .suggests(MERGE_FILE_SUGGESTIONS)
+                                                    .suggests(MERGE_FILE_SUGGESTIONS) // Suggest for 1st file
                                                     .executes(context -> {
                                                         String mergedFileName = StringArgumentType.getString(context, "mergedFileName");
                                                         String includeCached = StringArgumentType.getString(context, "includeCached");
@@ -444,6 +488,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
                                                         return mergeMarkerFiles(context, mergedFileName, includeCached.equalsIgnoreCase("includeCachedMarkers"), files);
                                                     })
                                                     .then(ClientCommandManager.argument("additionalFiles", StringArgumentType.greedyString())
+                                                            .suggests(MERGE_FILE_SUGGESTIONS) // Suggest for additional files too
                                                             .executes(context -> {
                                                                 String mergedFileName = StringArgumentType.getString(context, "mergedFileName");
                                                                 String includeCached = StringArgumentType.getString(context, "includeCached");
@@ -464,11 +509,56 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
                                                                 return mergeMarkerFiles(context, mergedFileName, includeCached.equalsIgnoreCase("includeCachedMarkers"), files);
                                                             }))))))
+                    // KML Import Command
+                    .then(ClientCommandManager.literal("importKML")
+                            .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+                                    .suggests(KML_FILE_SUGGESTIONS)
+                                    .executes(context -> {
+                                        String filename = StringArgumentType.getString(context, "filename");
+                                        return importKmlFile(context, filename);
+                                    })))
             );
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client == null || client.player == null || client.world == null) return;
+
+            // Handle KML import start delay
+            if (kmlImportWaitingToStart) {
+                if (kmlImportStartDelayTicks > 0) {
+                    kmlImportStartDelayTicks--;
+                    // Show countdown in title
+                    if (client.player != null) {
+                        int secondsLeft = (kmlImportStartDelayTicks / 20) + 1;
+                        showImportWarningTitle(client, "KML Import Starting in " + secondsLeft + "s...", "DO NOT TOUCH MINECRAFT!");
+                    }
+                } else {
+                    // Start the actual import
+                    kmlImportWaitingToStart = false;
+                    isKmlImporting = true;
+                    kmlImportTickCounter = 0;
+                    kmlCurrentPointIndex = 0;
+
+                    // Clear title and show started message
+                    if (client.player != null) {
+                        client.inGameHud.setTitle(Text.literal(""));
+                        client.inGameHud.setSubtitle(Text.literal(""));
+                    }
+
+                    // Process first point immediately
+                    processNextKmlPoint(client);
+                }
+                return; // Skip other processing during start delay
+            }
+
+            // Handle KML import processing
+            if (isKmlImporting && !pendingKmlPoints.isEmpty()) {
+                kmlImportTickCounter++;
+                if (kmlImportTickCounter >= config.kmlImportDelayTicks) {
+                    kmlImportTickCounter = 0;
+                    processNextKmlPoint(client);
+                }
+            }
 
             // Handle autosave timer
             if (config.enableAutosave && config.autosaveIntervalMinutes > 0) {
@@ -583,6 +673,233 @@ public class BoshysBTEUtils implements ClientModInitializer {
         });
     }
 
+    // Helper method to show title/subtitle for KML import warning
+    private void showImportWarningTitle(MinecraftClient client, String title, String subtitle) {
+        if (client.player != null && client.inGameHud != null) {
+            client.inGameHud.setTitle(Text.literal("§c§l" + title));
+            client.inGameHud.setSubtitle(Text.literal("§e" + subtitle));
+        }
+    }
+
+    // KML Import Methods
+
+    private int importKmlFile(CommandContext<FabricClientCommandSource> context, String filename) {
+        if (!config.enableMarkers) {
+            context.getSource().sendFeedback(Text.literal("§cMarkers disabled in config!"));
+            return 0;
+        }
+
+        if (isKmlImporting || kmlImportWaitingToStart) {
+            context.getSource().sendFeedback(Text.literal("§cKML import already in progress! Please wait..."));
+            return 0;
+        }
+
+        // Clean filename
+        String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
+        if (cleanFilename.isEmpty()) {
+            context.getSource().sendFeedback(Text.literal("§cInvalid filename!"));
+            return 0;
+        }
+
+        Path kmlPath = getKmlSavePath();
+        File kmlFile = kmlPath.resolve(cleanFilename + ".kml").toFile();
+
+        // Try with .KML extension if .kml not found
+        if (!kmlFile.exists()) {
+            kmlFile = kmlPath.resolve(cleanFilename + ".KML").toFile();
+        }
+
+        if (!kmlFile.exists()) {
+            context.getSource().sendFeedback(Text.literal("§cKML file '" + cleanFilename + "' not found in " + kmlPath.toString()));
+            return 0;
+        }
+
+        // Parse KML file
+        List<KmlPoint> points = parseKmlFile(kmlFile);
+
+        if (points.isEmpty()) {
+            context.getSource().sendFeedback(Text.literal("§cNo valid coordinates found in KML file!"));
+            return 0;
+        }
+
+        // Parse post-import commands
+        kmlPostCommandsList.clear();
+        if (config.kmlPostImportCommands != null && !config.kmlPostImportCommands.isEmpty()) {
+            String[] commands = config.kmlPostImportCommands.split(";");
+            for (String cmd : commands) {
+                cmd = cmd.trim();
+                if (!cmd.isEmpty()) {
+                    kmlPostCommandsList.add(cmd);
+                }
+            }
+        }
+
+        // Setup import with start delay
+        pendingKmlPoints = new ArrayList<>(points);
+        currentKmlFileName = cleanFilename;
+        kmlCurrentPointIndex = 0;
+
+        // Start the delay countdown
+        kmlImportWaitingToStart = true;
+        kmlImportStartDelayTicks = config.kmlImportStartDelaySeconds * 20; // Convert to ticks
+
+        // Send initial warning
+        context.getSource().sendFeedback(Text.literal("§e§l=== KML IMPORT STARTING ==="));
+        context.getSource().sendFeedback(Text.literal("§e§lDO NOT TOUCH YOUR MINECRAFT UNTIL IMPORT IS COMPLETE!"));
+        context.getSource().sendFeedback(Text.literal("§eStarting in " + config.kmlImportStartDelaySeconds + " seconds..."));
+        context.getSource().sendFeedback(Text.literal("§eWill import " + points.size() + " points from '" + cleanFilename + "'"));
+        context.getSource().sendFeedback(Text.literal("§eDelay: " + config.kmlImportDelayTicks + " ticks between points"));
+
+        return 1;
+    }
+
+    private List<KmlPoint> parseKmlFile(File kmlFile) {
+        List<KmlPoint> points = new ArrayList<>();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(kmlFile), StandardCharsets.UTF_8))) {
+            StringBuilder content = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line).append("\n");
+            }
+
+            String kmlContent = content.toString();
+
+            // Look for <coordinates> tags
+            Pattern coordPattern = Pattern.compile("<coordinates>([^<]+)</coordinates>", Pattern.CASE_INSENSITIVE);
+            Matcher matcher = coordPattern.matcher(kmlContent);
+
+            while (matcher.find()) {
+                String coordBlock = matcher.group(1).trim();
+
+                // KML coordinates can be space-separated (for paths) or individual points
+                // Format: longitude,latitude,altitude (altitude is optional)
+                String[] coordEntries = coordBlock.split("\\s+");
+
+                for (String entry : coordEntries) {
+                    entry = entry.trim();
+                    if (entry.isEmpty()) continue;
+
+                    String[] parts = entry.split(",");
+                    if (parts.length >= 2) {
+                        try {
+                            double longitude = Double.parseDouble(parts[0].trim());
+                            double latitude = Double.parseDouble(parts[1].trim());
+                            double altitude = 0;
+
+                            // Altitude is optional in KML
+                            if (parts.length >= 3) {
+                                try {
+                                    altitude = Double.parseDouble(parts[2].trim());
+                                } catch (NumberFormatException e) {
+                                    // Altitude invalid, use 0
+                                }
+                            }
+
+                            points.add(new KmlPoint(longitude, latitude, altitude));
+                        } catch (NumberFormatException e) {
+                            // Invalid coordinate, skip
+                        }
+                    }
+                }
+            }
+
+            // Also try <gx:coord> format (Google Earth extensions)
+            Pattern gxCoordPattern = Pattern.compile("<gx:coord>([^<]+)</gx:coord>", Pattern.CASE_INSENSITIVE);
+            Matcher gxMatcher = gxCoordPattern.matcher(kmlContent);
+
+            while (gxMatcher.find()) {
+                String coordEntry = gxMatcher.group(1).trim();
+                String[] parts = coordEntry.split("\\s+");
+
+                if (parts.length >= 2) {
+                    try {
+                        double longitude = Double.parseDouble(parts[0].trim());
+                        double latitude = Double.parseDouble(parts[1].trim());
+                        double altitude = 0;
+
+                        if (parts.length >= 3) {
+                            try {
+                                altitude = Double.parseDouble(parts[2].trim());
+                            } catch (NumberFormatException e) {
+                                // Altitude invalid, use 0
+                            }
+                        }
+
+                        points.add(new KmlPoint(longitude, latitude, altitude));
+                    } catch (NumberFormatException e) {
+                        // Invalid coordinate, skip
+                    }
+                }
+            }
+
+        } catch (IOException e) {
+            // Error reading file, return empty list
+        }
+
+        return points;
+    }
+
+    private void processNextKmlPoint(MinecraftClient client) {
+        if (!isKmlImporting || client.player == null) {
+            return;
+        }
+
+        // Check if we're done
+        if (kmlCurrentPointIndex >= pendingKmlPoints.size()) {
+            finishKmlImport(client);
+            return;
+        }
+
+        KmlPoint point = pendingKmlPoints.get(kmlCurrentPointIndex);
+        kmlCurrentPointIndex++;
+
+        // Send TPLL command
+        // KML format is longitude,latitude but TPLL expects latitude,longitude
+        String tpllCommand = config.commandPrefix + " " + point.latitude + ", " + point.longitude;
+
+        // Store position before teleport for marker placement
+        posXBeforeTpll = client.player.getX();
+        posYBeforeTpll = client.player.getY();
+        posZBeforeTpll = client.player.getZ();
+        waitingForTeleport = true;
+        tpllCooldownTicks = TPLL_COOLDOWN_MAX;
+        lastCommandSent = tpllCommand;
+        commandCooldownTicks = COMMAND_COOLDOWN_MAX;
+
+        client.player.networkHandler.sendChatCommand(tpllCommand);
+
+        // Progress update every 5 points or on last point
+        int totalPoints = pendingKmlPoints.size();
+        if (kmlCurrentPointIndex % 5 == 0 || kmlCurrentPointIndex >= totalPoints) {
+            String progressMsg = "KML Import: " + kmlCurrentPointIndex + "/" + totalPoints + " - DO NOT TOUCH!";
+            showImportWarningTitle(client, progressMsg, "Import in Progress...");
+        }
+    }
+
+    private void finishKmlImport(MinecraftClient client) {
+        // Clear the importing flag first
+        isKmlImporting = false;
+        int importedCount = kmlCurrentPointIndex;
+
+        // Clear title
+        if (client.player != null) {
+            client.inGameHud.setTitle(Text.literal(""));
+            client.inGameHud.setSubtitle(Text.literal(""));
+        }
+
+        // Send completion messages
+        notifyError(client, "§a§l=== KML IMPORT COMPLETE ===");
+        notifyError(client, "§aImported " + importedCount + " points from '" + currentKmlFileName + "'");
+        notifyError(client, "§aYou can now use Minecraft normally.");
+
+        // Cleanup
+        pendingKmlPoints.clear();
+        kmlCurrentPointIndex = 0;
+        currentKmlFileName = "";
+        kmlPostCommandsList.clear();
+    }
+
     // Called when a command is sent (from mixin) to track potential TPLL commands
     public void onCommandSent(String command) {
         if (!config.enableMarkers || !config.enableAutoTpllMarkers) return;
@@ -640,9 +957,19 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 // Place marker at the ACTUAL new position (where player ended up after teleport)
                 TeleportMarker newMarker = addMarker(new Vec3d(currentX, currentY, currentZ));
 
-                // Auto-connect if enabled
-                if (config.enableAutoLineConnection) {
+                // Auto-connect if enabled - for KML import, always connect sequential points
+                if (config.enableAutoLineConnection || isKmlImporting) {
                     handleAutoConnect(newMarker);
+                }
+
+                // For KML import, keep the marker selected for connection to next point
+                if (isKmlImporting) {
+                    selectedMarkers.clear();
+                    selectedMarkers.add(newMarker);
+                    lastAddedMarker = newMarker;
+
+                    // Run post-import commands if any
+                    runPostImportCommands(client);
                 }
 
                 // Reset tracking
@@ -650,6 +977,16 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 commandCooldownTicks = 0;
                 lastCommandSent = "";
             }
+        }
+    }
+
+    private void runPostImportCommands(MinecraftClient client) {
+        if (client.player == null || kmlPostCommandsList.isEmpty()) return;
+
+        for (String cmd : kmlPostCommandsList) {
+            // Remove leading slash if present
+            String commandToSend = cmd.startsWith("/") ? cmd.substring(1) : cmd;
+            client.player.networkHandler.sendChatCommand(commandToSend);
         }
     }
 
@@ -813,6 +1150,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
             return Path.of("config/boshysbteutils/markers");
         }
         return markersSavePath;
+    }
+
+    public static Path getKmlSavePath() {
+        if (config.kmlFolderPath != null && !config.kmlFolderPath.isEmpty()) {
+            return Path.of(config.kmlFolderPath);
+        }
+        // Default to same as markers save path
+        return getMarkersSavePath();
     }
 
     private int clearCacheMarkersOnly() {
@@ -1108,6 +1453,29 @@ public class BoshysBTEUtils implements ClientModInitializer {
                                 existingData.connections.add(new SavedConnectionData(newIdx, otherIdx));
                             }
                         }
+                    }
+                }
+            }
+
+            // Also save any new connections between existing markers that were created since load
+            // This fixes the issue where connecting markers then updating doesn't save connections
+            for (MarkerConnection conn : markerConnections) {
+                Integer idx1 = existingMarkerIndices.get(conn.marker1.position);
+                Integer idx2 = existingMarkerIndices.get(conn.marker2.position);
+
+                // If both markers exist in the file
+                if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
+                    // Check if this connection already exists in the file
+                    boolean exists = false;
+                    for (SavedConnectionData savedConn : existingData.connections) {
+                        if ((savedConn.fromIndex == idx1 && savedConn.toIndex == idx2) ||
+                                (savedConn.fromIndex == idx2 && savedConn.toIndex == idx1)) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        existingData.connections.add(new SavedConnectionData(idx1, idx2));
                     }
                 }
             }
@@ -1722,6 +2090,19 @@ public class BoshysBTEUtils implements ClientModInitializer {
             this.lastModified = lastModified;
             this.markers = markers;
             this.connections = connections != null ? connections : new ArrayList<>();
+        }
+    }
+
+    // KML Point data class
+    public static class KmlPoint {
+        public final double longitude;
+        public final double latitude;
+        public final double altitude;
+
+        public KmlPoint(double longitude, double latitude, double altitude) {
+            this.longitude = longitude;
+            this.latitude = latitude;
+            this.altitude = altitude;
         }
     }
 }

@@ -66,6 +66,12 @@ public class ModMenuIntegration implements ModMenuApi {
                     button -> this.client.setScreen(new SavedMarkersScreen(this))
             ).dimensions(centerX - 150, startY + 90, 300, 20).build());
 
+            // KML Importing section - White and Bold
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("KML Importing").styled(style -> style.withBold(true)),
+                    button -> this.client.setScreen(new KMLImportingScreen(this))
+            ).dimensions(centerX - 150, startY + 120, 300, 20).build());
+
             // Done button
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Done"),
@@ -570,7 +576,7 @@ public class ModMenuIntegration implements ModMenuApi {
         }
     }
 
-    // Saved Markers Screen - NEW
+    // Saved Markers Screen
     public static class SavedMarkersScreen extends Screen {
         private final Screen parent;
         private int scrollOffset = 0;
@@ -772,6 +778,238 @@ public class ModMenuIntegration implements ModMenuApi {
                 if (scrollOffset < 0) scrollOffset = 0;
                 // Calculate max scroll based on content
                 int contentHeight = 650;
+                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+                rebuildButtons();
+                return true;
+            }
+            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+
+        @Override
+        public void close() {
+            this.client.setScreen(parent);
+        }
+    }
+
+    // KML Importing Screen - UPDATED with new settings
+    public static class KMLImportingScreen extends Screen {
+        private final Screen parent;
+        private int scrollOffset = 0;
+        private TextFieldWidget delayField;
+        private TextFieldWidget startDelayField;
+        private TextFieldWidget pathField;
+        private TextFieldWidget postCommandsField;
+
+        public KMLImportingScreen(Screen parent) {
+            super(Text.literal("KML Importing"));
+            this.parent = parent;
+        }
+
+        @Override
+        protected void init() {
+            rebuildButtons();
+        }
+
+        private void rebuildButtons() {
+            this.clearChildren();
+            int centerX = this.width / 2;
+            int startY = this.height / 6 - scrollOffset;
+
+            BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+
+            // Current KML folder location
+            Path currentPath = BoshysBTEUtils.getKmlSavePath();
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Current KML Folder:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(currentPath.toString()),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 25, 300, 20).build());
+
+            // Change KML path
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Custom KML Path (blank for default):"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 55, 300, 20).build());
+
+            pathField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 80, 300, 20, Text.literal("Path"));
+            pathField.setText(config.kmlFolderPath != null ? config.kmlFolderPath : "");
+            pathField.setChangedListener(text -> {
+                config.kmlFolderPath = text;
+            });
+            this.addDrawableChild(pathField);
+
+            // Import settings
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Import Settings:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 115, 300, 20).build());
+
+            // Delay between points input field
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Delay Between Points (ticks, 1-100):"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 140, 300, 20).build());
+
+            delayField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 165, 300, 20, Text.literal("Delay"));
+            delayField.setText(String.valueOf(config.kmlImportDelayTicks));
+            delayField.setChangedListener(text -> {
+                try {
+                    int val = Integer.parseInt(text);
+                    if (val >= 1 && val <= 100) {
+                        config.kmlImportDelayTicks = val;
+                    }
+                } catch (NumberFormatException e) {
+                    // Invalid number, ignore
+                }
+            });
+            this.addDrawableChild(delayField);
+
+            // Start delay input field
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Start Delay (seconds, 0-10):"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 195, 300, 20).build());
+
+            startDelayField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 220, 300, 20, Text.literal("Start Delay"));
+            startDelayField.setText(String.valueOf(config.kmlImportStartDelaySeconds));
+            startDelayField.setChangedListener(text -> {
+                try {
+                    int val = Integer.parseInt(text);
+                    if (val >= 0 && val <= 10) {
+                        config.kmlImportStartDelaySeconds = val;
+                    }
+                } catch (NumberFormatException e) {
+                    // Invalid number, ignore
+                }
+            });
+            this.addDrawableChild(startDelayField);
+
+            // Post-import commands
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Post-Import Commands (semicolon separated):").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 255, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Commands to run after each TPLL (e.g., //pos1;//pos2)"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 275, 300, 15).build());
+
+            postCommandsField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 295, 300, 20, Text.literal("Commands"));
+            postCommandsField.setText(config.kmlPostImportCommands != null ? config.kmlPostImportCommands : "");
+            postCommandsField.setChangedListener(text -> {
+                config.kmlPostImportCommands = text;
+            });
+            this.addDrawableChild(postCommandsField);
+
+            // Command section
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Import Command:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 330, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("/boshys-bt-utils importKML <filename>"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 355, 300, 15).build());
+
+            // Tutorial section - How to import KML files
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("How to Import KML Files:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 385, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("1. Export your path from Google Earth Pro as KML"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 410, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("2. Place the .kml file in the KML folder shown above"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 428, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("3. Use /boshys-bt-utils importKML <filename>"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 446, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("4. DO NOT touch Minecraft until import completes!"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 464, 300, 15).build());
+
+            // Supported formats
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Supported KML Formats:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 494, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• Regular paths (LineString, Placemark)"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 519, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• 3D paths with altitude data"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 537, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• Multiple paths in one file"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 555, 300, 15).build());
+
+            // How it works
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("How It Works:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 585, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• Reads coordinates from KML <coordinates> tags"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 610, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• Runs /tpll for each point automatically"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 628, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• Places markers at teleport destinations"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 646, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• Auto-connects sequential points with lines"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 664, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("• Runs post-import commands after each TPLL"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 682, 300, 15).build());
+
+            // Back button
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Back"),
+                    button -> this.client.setScreen(parent)
+            ).dimensions(centerX - 100, startY + 715, 200, 20).build());
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+            if (verticalAmount != 0) {
+                scrollOffset -= (int)(verticalAmount * 20);
+                if (scrollOffset < 0) scrollOffset = 0;
+                // Calculate max scroll based on content
+                int contentHeight = 760;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
