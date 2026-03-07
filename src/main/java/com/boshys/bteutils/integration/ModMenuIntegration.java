@@ -2,6 +2,8 @@ package com.boshys.bteutils.integration;
 
 import com.boshys.bteutils.BoshysBTEUtils;
 import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
+import com.boshys.bteutils.storage.MarkerStorage;
+import com.boshys.bteutils.data.MarkerData;
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
 import me.shedaniel.autoconfig.AutoConfig;
@@ -18,8 +20,6 @@ import net.minecraft.text.Text;
 import java.awt.Color;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 
 @Environment(EnvType.CLIENT)
 public class ModMenuIntegration implements ModMenuApi {
@@ -75,13 +75,21 @@ public class ModMenuIntegration implements ModMenuApi {
             // Done button
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Done"),
-                    button -> this.client.setScreen(parent)
+                    button -> {
+                        saveConfig();
+                        this.client.setScreen(parent);
+                    }
             ).dimensions(centerX - 100, this.height - 40, 200, 20).build());
         }
 
         @Override
         public void close() {
+            saveConfig();
             this.client.setScreen(parent);
+        }
+
+        private void saveConfig() {
+            AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
         }
     }
 
@@ -99,7 +107,6 @@ public class ModMenuIntegration implements ModMenuApi {
             int centerX = this.width / 2;
             int startY = this.height / 6;
 
-            // Keybind display and link to controls
             KeyBinding keybind = BoshysBTEUtils.tpllKeybind;
             String keyName = keybind.getBoundKeyLocalizedText().getString();
             if (keyName.equalsIgnoreCase("key.keyboard.unknown")) {
@@ -157,6 +164,7 @@ public class ModMenuIntegration implements ModMenuApi {
                     Text.literal("Enable Markers: " + (config.enableMarkers ? "ON" : "OFF")),
                     button -> {
                         config.enableMarkers = !config.enableMarkers;
+                        saveConfig();
                         rebuildButtons();
                     }
             ).dimensions(centerX - 150, startY, 300, 20).build());
@@ -166,6 +174,7 @@ public class ModMenuIntegration implements ModMenuApi {
                     Text.literal("Auto TPLL Markers: " + (config.enableAutoTpllMarkers ? "ON" : "OFF")),
                     button -> {
                         config.enableAutoTpllMarkers = !config.enableAutoTpllMarkers;
+                        saveConfig();
                         rebuildButtons();
                     }
             ).dimensions(centerX - 150, startY + 25, 300, 20).build());
@@ -175,6 +184,7 @@ public class ModMenuIntegration implements ModMenuApi {
                     Text.literal("Clear Confirmation: " + (config.enableClearConfirmation ? "ON" : "OFF")),
                     button -> {
                         config.enableClearConfirmation = !config.enableClearConfirmation;
+                        saveConfig();
                         rebuildButtons();
                     }
             ).dimensions(centerX - 150, startY + 50, 300, 20).build());
@@ -192,9 +202,9 @@ public class ModMenuIntegration implements ModMenuApi {
                     int val = Integer.parseInt(text);
                     if (val >= 1 && val <= 1000) {
                         config.clearConfirmLimit = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(confirmLimitField);
@@ -214,9 +224,9 @@ public class ModMenuIntegration implements ModMenuApi {
                 try {
                     if (text.length() == 6) {
                         config.markerColour = Integer.parseInt(text, 16);
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid hex, ignore
                 }
             });
             this.addDrawableChild(hexField);
@@ -234,9 +244,9 @@ public class ModMenuIntegration implements ModMenuApi {
                     float val = Float.parseFloat(text);
                     if (val >= 0.0f && val <= 1.0f) {
                         config.markerOpacity = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(opacityField);
@@ -254,16 +264,16 @@ public class ModMenuIntegration implements ModMenuApi {
                     float val = Float.parseFloat(text);
                     if (val >= 0.01f && val <= 1.0f) {
                         config.markerScale = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(scaleField);
 
-            // Update Marker Design button - NOT BOLD (as requested)
+            // Update Marker Design button - NOW CHECKS IF LOADED
             this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal("Update Marker Design"), // Removed .styled(style -> style.withBold(true))
+                    Text.literal("Update Marker Design"),
                     button -> {
                         if (!config.enableMarkers) {
                             if (this.client.player != null) {
@@ -279,21 +289,36 @@ public class ModMenuIntegration implements ModMenuApi {
                             return;
                         }
 
+                        // Check if markers are loaded from files
+                        boolean hasUnloadedMarkers = false;
+                        for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+                            String origin = BoshysBTEUtils.markerOrigins.get(marker);
+                            if (origin == null || origin.equals("autosave") || origin.startsWith("autosave_")) {
+                                hasUnloadedMarkers = true;
+                                break;
+                            }
+                        }
+
+                        if (hasUnloadedMarkers) {
+                            if (this.client.player != null) {
+                                this.client.player.sendMessage(Text.literal("§cCannot update markers that are not loaded from a file! Save them first using saveMarkers."), false);
+                            }
+                            return;
+                        }
+
                         int updatedCount = 0;
 
-                        // If markers are selected, only update those
                         if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                            for (BoshysBTEUtils.TeleportMarker marker : BoshysBTEUtils.selectedMarkers) {
-                                BoshysBTEUtils.updateMarkerDesign(marker);
+                            for (MarkerData.TeleportMarker marker : BoshysBTEUtils.selectedMarkers) {
+                                MarkerData.updateMarkerDesign(marker);
                                 updatedCount++;
                             }
                             if (this.client.player != null) {
                                 this.client.player.sendMessage(Text.literal("§aUpdated " + updatedCount + " selected markers' design!"), false);
                             }
                         } else {
-                            // Update all markers
-                            for (BoshysBTEUtils.TeleportMarker marker : BoshysBTEUtils.markers) {
-                                BoshysBTEUtils.updateMarkerDesign(marker);
+                            for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+                                MarkerData.updateMarkerDesign(marker);
                                 updatedCount++;
                             }
                             if (this.client.player != null) {
@@ -307,7 +332,7 @@ public class ModMenuIntegration implements ModMenuApi {
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Clear All Markers"),
                     button -> {
-                        BoshysBTEUtils.clearAllMarkers();
+                        MarkerData.clearAllMarkers();
                         if (this.client.player != null) {
                             this.client.player.sendMessage(Text.literal("§aCleared all TPLL markers!"), false);
                         }
@@ -367,7 +392,7 @@ public class ModMenuIntegration implements ModMenuApi {
                     button -> {}
             ).dimensions(centerX - 150, startY + 500, 300, 15).build());
 
-            // Back button - Now part of scrollable content
+            // Back button
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Back"),
                     button -> this.client.setScreen(parent)
@@ -379,8 +404,7 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
-                // Max scroll calculated based on content height minus screen height
-                int contentHeight = 580; // Increased for new content
+                int contentHeight = 580;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
@@ -391,7 +415,12 @@ public class ModMenuIntegration implements ModMenuApi {
 
         @Override
         public void close() {
+            saveConfig();
             this.client.setScreen(parent);
+        }
+
+        private void saveConfig() {
+            AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
         }
     }
 
@@ -425,6 +454,7 @@ public class ModMenuIntegration implements ModMenuApi {
                     Text.literal("Auto-Connect Markers: " + (config.enableAutoLineConnection ? "ON" : "OFF")),
                     button -> {
                         config.enableAutoLineConnection = !config.enableAutoLineConnection;
+                        saveConfig();
                         rebuildButtons();
                     }
             ).dimensions(centerX - 150, startY, 300, 20).build());
@@ -444,9 +474,9 @@ public class ModMenuIntegration implements ModMenuApi {
                 try {
                     if (text.length() == 6) {
                         config.lineColour = Integer.parseInt(text, 16);
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid hex, ignore
                 }
             });
             this.addDrawableChild(hexField);
@@ -464,9 +494,9 @@ public class ModMenuIntegration implements ModMenuApi {
                     float val = Float.parseFloat(text);
                     if (val >= 0.0f && val <= 1.0f) {
                         config.lineOpacity = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(opacityField);
@@ -484,14 +514,14 @@ public class ModMenuIntegration implements ModMenuApi {
                     float val = Float.parseFloat(text);
                     if (val >= 0.1f && val <= 10.0f) {
                         config.lineThickness = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(thicknessField);
 
-            // Tutorial section - How line connections work
+            // Tutorial section
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("How Line Connections Work:").styled(style -> style.withBold(true)),
                     button -> {}
@@ -548,7 +578,7 @@ public class ModMenuIntegration implements ModMenuApi {
                     button -> {}
             ).dimensions(centerX - 150, startY + 336, 300, 15).build());
 
-            // Back button - Now part of scrollable content
+            // Back button
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Back"),
                     button -> this.client.setScreen(parent)
@@ -560,7 +590,6 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
-                // Max scroll calculated based on content height minus screen height
                 int contentHeight = 420;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
@@ -572,7 +601,12 @@ public class ModMenuIntegration implements ModMenuApi {
 
         @Override
         public void close() {
+            saveConfig();
             this.client.setScreen(parent);
+        }
+
+        private void saveConfig() {
+            AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
         }
     }
 
@@ -601,7 +635,7 @@ public class ModMenuIntegration implements ModMenuApi {
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
             // Current save location
-            Path currentPath = BoshysBTEUtils.getMarkersSavePath();
+            Path currentPath = BoshysBTEUtils.INSTANCE.getMarkerStorage().getMarkersSavePath();
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Current Save Location:").styled(style -> style.withBold(true)),
                     button -> {}
@@ -622,10 +656,10 @@ public class ModMenuIntegration implements ModMenuApi {
             pathField.setText(config.savedMarkersFolderPath != null ? config.savedMarkersFolderPath : "");
             pathField.setChangedListener(text -> {
                 config.savedMarkersFolderPath = text;
-                // Update path immediately
                 if (BoshysBTEUtils.INSTANCE != null) {
-                    BoshysBTEUtils.INSTANCE.updateMarkersSavePath();
+                    BoshysBTEUtils.INSTANCE.getMarkerStorage().updateMarkersSavePath();
                 }
+                saveConfig();
             });
             this.addDrawableChild(pathField);
 
@@ -640,6 +674,7 @@ public class ModMenuIntegration implements ModMenuApi {
                     Text.literal("Enable Autosave: " + (config.enableAutosave ? "ON" : "OFF")),
                     button -> {
                         config.enableAutosave = !config.enableAutosave;
+                        saveConfig();
                         rebuildButtons();
                     }
             ).dimensions(centerX - 150, startY + 140, 300, 20).build());
@@ -657,9 +692,9 @@ public class ModMenuIntegration implements ModMenuApi {
                     int val = Integer.parseInt(text);
                     if (val >= 0 && val <= 1440) {
                         config.autosaveIntervalMinutes = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(autosaveIntervalField);
@@ -740,22 +775,33 @@ public class ModMenuIntegration implements ModMenuApi {
                     button -> {}
             ).dimensions(centerX - 150, startY + 519, 300, 15).build());
 
+            // Share file command
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("/boshys-bt-utils shareFile <player> <file>"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 542, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("  Shares a file with another player."),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 560, 300, 15).build());
+
             // Loaded files section
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Currently Loaded Files:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 550, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 590, 300, 20).build());
 
-            int fileY = startY + 575;
-            if (BoshysBTEUtils.loadedFiles.isEmpty()) {
+            int fileY = startY + 615;
+            if (BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().isEmpty()) {
                 this.addDrawableChild(ButtonWidget.builder(
                         Text.literal("No files currently loaded"),
                         button -> {}
                 ).dimensions(centerX - 150, fileY, 300, 15).build());
                 fileY += 20;
             } else {
-                for (String filename : BoshysBTEUtils.loadedFiles.keySet()) {
-                    BoshysBTEUtils.SavedMarkerFile file = BoshysBTEUtils.loadedFiles.get(filename);
+                for (String filename : BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().keySet()) {
+                    MarkerData.SavedMarkerFile file = BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().get(filename);
                     this.addDrawableChild(ButtonWidget.builder(
                             Text.literal("• " + filename + " (" + file.markers.size() + " markers)"),
                             button -> {}
@@ -776,8 +822,7 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
-                // Calculate max scroll based on content
-                int contentHeight = 650;
+                int contentHeight = 680;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
@@ -788,11 +833,16 @@ public class ModMenuIntegration implements ModMenuApi {
 
         @Override
         public void close() {
+            saveConfig();
             this.client.setScreen(parent);
+        }
+
+        private void saveConfig() {
+            AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
         }
     }
 
-    // KML Importing Screen - UPDATED with new settings
+    // KML Importing Screen
     public static class KMLImportingScreen extends Screen {
         private final Screen parent;
         private int scrollOffset = 0;
@@ -800,6 +850,7 @@ public class ModMenuIntegration implements ModMenuApi {
         private TextFieldWidget startDelayField;
         private TextFieldWidget pathField;
         private TextFieldWidget postCommandsField;
+        private TextFieldWidget worldEditBlockField;
 
         public KMLImportingScreen(Screen parent) {
             super(Text.literal("KML Importing"));
@@ -819,7 +870,7 @@ public class ModMenuIntegration implements ModMenuApi {
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
             // Current KML folder location
-            Path currentPath = BoshysBTEUtils.getKmlSavePath();
+            Path currentPath = MarkerStorage.getKmlSavePath();
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Current KML Folder:").styled(style -> style.withBold(true)),
                     button -> {}
@@ -840,6 +891,7 @@ public class ModMenuIntegration implements ModMenuApi {
             pathField.setText(config.kmlFolderPath != null ? config.kmlFolderPath : "");
             pathField.setChangedListener(text -> {
                 config.kmlFolderPath = text;
+                saveConfig();
             });
             this.addDrawableChild(pathField);
 
@@ -862,9 +914,9 @@ public class ModMenuIntegration implements ModMenuApi {
                     int val = Integer.parseInt(text);
                     if (val >= 1 && val <= 100) {
                         config.kmlImportDelayTicks = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(delayField);
@@ -882,9 +934,9 @@ public class ModMenuIntegration implements ModMenuApi {
                     int val = Integer.parseInt(text);
                     if (val >= 0 && val <= 10) {
                         config.kmlImportStartDelaySeconds = val;
+                        saveConfig();
                     }
                 } catch (NumberFormatException e) {
-                    // Invalid number, ignore
                 }
             });
             this.addDrawableChild(startDelayField);
@@ -904,103 +956,142 @@ public class ModMenuIntegration implements ModMenuApi {
             postCommandsField.setText(config.kmlPostImportCommands != null ? config.kmlPostImportCommands : "");
             postCommandsField.setChangedListener(text -> {
                 config.kmlPostImportCommands = text;
+                saveConfig();
             });
             this.addDrawableChild(postCommandsField);
+
+            // WorldEdit Lines Settings
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("WorldEdit Lines Settings:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 330, 300, 20).build());
+
+            // Enable WorldEdit lines toggle
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Auto-Create World-Edit Lines: " + (config.enableWorldEditLines ? "ON" : "OFF")),
+                    button -> {
+                        config.enableWorldEditLines = !config.enableWorldEditLines;
+                        saveConfig();
+                        rebuildButtons();
+                    }
+            ).dimensions(centerX - 150, startY + 355, 300, 20).build());
+
+            // Warning text
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("§eWarning: It is recommended to add a gmask before enabling this"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 380, 300, 15).build());
+
+            // WorldEdit block input field
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Block to use:"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 405, 140, 20).build());
+
+            worldEditBlockField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 405, 140, 20, Text.literal("Block"));
+            worldEditBlockField.setText(config.worldEditLineBlock);
+            worldEditBlockField.setChangedListener(text -> {
+                if (text != null && !text.trim().isEmpty()) {
+                    config.worldEditLineBlock = text.trim().replaceAll("\\s+", "_");
+                    saveConfig();
+                }
+            });
+            this.addDrawableChild(worldEditBlockField);
 
             // Command section
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Import Command:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 330, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 440, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("/boshys-bt-utils importKML <filename>"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 355, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 465, 300, 15).build());
 
-            // Tutorial section - How to import KML files
+            // Tutorial section
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("How to Import KML Files:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 385, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 495, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("1. Export your path from Google Earth Pro as KML"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 410, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 520, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("2. Place the .kml file in the KML folder shown above"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 428, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 538, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("3. Use /boshys-bt-utils importKML <filename>"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 446, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 556, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("4. DO NOT touch Minecraft until import completes!"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 464, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 574, 300, 15).build());
 
             // Supported formats
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Supported KML Formats:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 494, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 604, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Regular paths (LineString, Placemark)"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 519, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 629, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• 3D paths with altitude data"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 537, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 647, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Multiple paths in one file"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 555, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 665, 300, 15).build());
 
             // How it works
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("How It Works:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 585, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 695, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Reads coordinates from KML <coordinates> tags"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 610, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 720, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Runs /tpll for each point automatically"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 628, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 738, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Places markers at teleport destinations"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 646, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 756, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Auto-connects sequential points with lines"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 664, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 774, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Runs post-import commands after each TPLL"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 682, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 792, 300, 15).build());
 
             // Back button
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Back"),
                     button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 715, 200, 20).build());
+            ).dimensions(centerX - 100, startY + 825, 200, 20).build());
         }
 
         @Override
@@ -1008,8 +1099,7 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
-                // Calculate max scroll based on content
-                int contentHeight = 760;
+                int contentHeight = 870;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
@@ -1020,7 +1110,12 @@ public class ModMenuIntegration implements ModMenuApi {
 
         @Override
         public void close() {
+            saveConfig();
             this.client.setScreen(parent);
+        }
+
+        private void saveConfig() {
+            AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
         }
     }
 }

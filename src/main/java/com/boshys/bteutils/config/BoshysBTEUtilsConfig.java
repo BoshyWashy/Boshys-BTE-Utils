@@ -84,8 +84,8 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public String kmlFolderPath = "";
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Delay between KML import operations in ticks (default: 3, min: 1, max: 100)")
-    public int kmlImportDelayTicks = 3;
+    @Comment("Delay between KML import operations in ticks (default: 20, min: 1, max: 100)")
+    public int kmlImportDelayTicks = 20;
 
     @ConfigEntry.Gui.Tooltip
     @Comment("Delay before starting KML import in seconds (default: 1, min: 0, max: 10)")
@@ -95,8 +95,18 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Commands to run after each TPLL during KML import (semicolon separated, e.g., //pos1;//pos2)")
     public String kmlPostImportCommands = "";
 
+    // WorldEdit Lines Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Enable automatic WorldEdit line creation during KML import")
+    public boolean enableWorldEditLines = false;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Block to use for WorldEdit lines (default: diamond_block)")
+    public String worldEditLineBlock = "diamond_block";
+
     @Override
     public void validatePostLoad() {
+        // Ensure commandPrefix is never null or empty
         if (commandPrefix == null || commandPrefix.trim().isEmpty()) {
             commandPrefix = "tpll";
         }
@@ -138,5 +148,11 @@ public class BoshysBTEUtilsConfig implements ConfigData {
         if (kmlPostImportCommands == null) {
             kmlPostImportCommands = "";
         }
+
+        // Validate WorldEdit line block
+        if (worldEditLineBlock == null || worldEditLineBlock.trim().isEmpty()) {
+            worldEditLineBlock = "diamond_block";
+        }
+        worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\\s+", "_");
     }
 }
