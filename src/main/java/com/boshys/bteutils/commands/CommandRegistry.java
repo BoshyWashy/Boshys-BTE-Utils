@@ -9,13 +9,13 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.math.Vec3d;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -74,11 +74,11 @@ public class CommandRegistry {
                             int cacheCount = markerStorage.getCacheMarkerCount();
                             if (BoshysBTEUtils.getConfig().enableClearConfirmation && cacheCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
                                 markerStorage.setPendingClear(cacheCount, false);
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§eAre you sure? This will clear " + cacheCount + " cache markers. Use /boshys-bt-utils confirmClear to confirm."));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required", cacheCount));
                                 return 1;
                             }
                             int count = markerStorage.clearCacheMarkersOnly();
-                            context.getSource().sendFeedback(net.minecraft.text.Text.literal("§aCleared " + count + " cache markers! Loaded files remain active."));
+                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
                             return 1;
                         })
                         .then(ClientCommandManager.literal("all")
@@ -86,11 +86,11 @@ public class CommandRegistry {
                                     int totalCount = BoshysBTEUtils.markers.size();
                                     if (BoshysBTEUtils.getConfig().enableClearConfirmation && totalCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
                                         markerStorage.setPendingClear(totalCount, true);
-                                        context.getSource().sendFeedback(net.minecraft.text.Text.literal("§eAre you sure? This will clear " + totalCount + " markers including loaded files. Use /boshys-bt-utils confirmClear to confirm."));
+                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required.all", totalCount));
                                         return 1;
                                     }
                                     int count = markerStorage.confirmClear();
-                                    context.getSource().sendFeedback(net.minecraft.text.Text.literal("§aCleared " + count + " markers and unloaded all files!"));
+                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
                                     return 1;
                                 })))
 
@@ -98,14 +98,14 @@ public class CommandRegistry {
                 .then(ClientCommandManager.literal("confirmClear")
                         .executes(context -> {
                             if (!markerStorage.hasPendingClear()) {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cNo pending clear operation!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.none"));
                                 return 0;
                             }
                             int count = markerStorage.confirmClear();
                             if (markerStorage.isPendingClearAll()) {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§aCleared " + count + " markers and unloaded all files!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
                             } else {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§aCleared " + count + " cache markers! Loaded files remain active."));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
                             }
                             return 1;
                         }))
@@ -114,7 +114,7 @@ public class CommandRegistry {
                 .then(ClientCommandManager.literal("addMarker")
                         .executes(context -> {
                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cMarkers disabled in config!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                 return 0;
                             }
 
@@ -129,7 +129,15 @@ public class CommandRegistry {
                                 com.boshys.bteutils.data.MarkerData.handleAutoConnect(newMarker);
                             }
 
-                            context.getSource().sendFeedback(net.minecraft.text.Text.literal("§aMarker added at your location!"));
+                            // Check if this is the first marker added this session via command
+                            if (!BoshysBTEUtils.hasAddedMarkerThisSession) {
+                                sendFirstMarkerMessage(context.getSource());
+                                BoshysBTEUtils.hasAddedMarkerThisSession = true;
+                            } else {
+                                // Subsequent markers - action bar only
+                                player.sendMessage(Text.translatable("command.boshysbteutils.marker.added_actionbar").formatted(net.minecraft.util.Formatting.GREEN), true);
+                            }
+
                             return 1;
                         }))
 
@@ -137,12 +145,12 @@ public class CommandRegistry {
                 .then(ClientCommandManager.literal("updateMarkerDesign")
                         .executes(context -> {
                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cMarkers disabled in config!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                 return 0;
                             }
 
                             if (BoshysBTEUtils.markers.isEmpty()) {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cNo markers to update!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.no_markers"));
                                 return 0;
                             }
 
@@ -157,7 +165,7 @@ public class CommandRegistry {
                                 }
 
                                 if (hasUnloadedMarkers) {
-                                    context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cCannot update markers that are not loaded from a file! Save them first using saveMarkers."));
+                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
                                     return 0;
                                 }
 
@@ -166,7 +174,7 @@ public class CommandRegistry {
                                     com.boshys.bteutils.data.MarkerData.updateMarkerDesign(marker);
                                     updatedCount++;
                                 }
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§aUpdated " + updatedCount + " selected markers' design!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated.selected", updatedCount));
                             } else {
                                 boolean hasUnloadedMarkers = false;
                                 for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
@@ -178,7 +186,7 @@ public class CommandRegistry {
                                 }
 
                                 if (hasUnloadedMarkers) {
-                                    context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cCannot update markers that are not loaded from a file! Save them first using saveMarkers."));
+                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
                                     return 0;
                                 }
 
@@ -187,7 +195,7 @@ public class CommandRegistry {
                                     com.boshys.bteutils.data.MarkerData.updateMarkerDesign(marker);
                                     updatedCount++;
                                 }
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§aUpdated " + updatedCount + " markers to current config design!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated", updatedCount));
                             }
 
                             return 1;
@@ -200,11 +208,11 @@ public class CommandRegistry {
                                         .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
                                                 .executes(context -> {
                                                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                        context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cMarkers disabled in config!"));
+                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                                         return 0;
                                                     }
                                                     if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                                                        context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cNo markers selected! Right-click markers to select them."));
+                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection"));
                                                         return 0;
                                                     }
                                                     double dx = DoubleArgumentType.getDouble(context, "x");
@@ -214,11 +222,11 @@ public class CommandRegistry {
                                                 }))))
                         .executes(context -> {
                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cMarkers disabled in config!"));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                 return 0;
                             }
                             if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cNo markers selected! Right-click markers to select them."));
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection"));
                                 return 0;
                             }
                             ClientPlayerEntity player = context.getSource().getPlayer();
@@ -234,7 +242,7 @@ public class CommandRegistry {
                                                 .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
                                                         .executes(context -> {
                                                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                                context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cMarkers disabled in config!"));
+                                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                                                 return 0;
                                                             }
 
@@ -275,7 +283,7 @@ public class CommandRegistry {
                                             return markerStorage.updateMarkerFile(context.getSource(), filename, radius);
                                         }))))
 
-                // Load - with wildcard support using greedy string
+                // Load
                 .then(ClientCommandManager.literal("load")
                         .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
                                 .suggests(LOADABLE_FILE_SUGGESTIONS)
@@ -287,7 +295,7 @@ public class CommandRegistry {
                                     return markerStorage.loadMarkerFile(context.getSource(), filename);
                                 })))
 
-                // Hide - with wildcard support using greedy string
+                // Hide
                 .then(ClientCommandManager.literal("hide")
                         .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
                                 .suggests(LOADED_FILE_SUGGESTIONS)
@@ -340,19 +348,36 @@ public class CommandRegistry {
         );
     }
 
+    private void sendFirstMarkerMessage(FabricClientCommandSource source) {
+        // Send header
+        source.sendFeedback(Text.literal("§7============= §aBoshy's BT-Utils §7============="));
+        // Empty line
+        source.sendFeedback(Text.literal(""));
+        // Message 1
+        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.select"));
+        // Empty line
+        source.sendFeedback(Text.literal(""));
+        // Message 2
+        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.multiselect"));
+        // Empty line
+        source.sendFeedback(Text.literal(""));
+        // Message 3
+        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.move"));
+    }
+
     private int loadAllFiles(FabricClientCommandSource source) {
         Path savePath = MarkerStorage.getMarkersSavePath();
         File dir = savePath.toFile();
 
         if (!dir.exists() || !dir.isDirectory()) {
-            source.sendFeedback(net.minecraft.text.Text.literal("§cNo marker files found!"));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.file.not_found", "*"));
             return 0;
         }
 
         File[] files = dir.listFiles((d, name) -> name.endsWith(".json") && !name.equals("autosave.json") && !name.startsWith("autosave_"));
 
         if (files == null || files.length == 0) {
-            source.sendFeedback(net.minecraft.text.Text.literal("§cNo marker files found!"));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.file.not_found", "*"));
             return 0;
         }
 
@@ -371,10 +396,10 @@ public class CommandRegistry {
         }
 
         if (loadedCount > 0) {
-            source.sendFeedback(net.minecraft.text.Text.literal("§aLoaded " + loadedCount + " files: " + String.join(", ", loadedFiles)));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.file.loaded.multiple", loadedCount, String.join(", ", loadedFiles)));
         }
         if (!failedFiles.isEmpty()) {
-            source.sendFeedback(net.minecraft.text.Text.literal("§cFailed to load: " + String.join(", ", failedFiles)));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.file.load_failed.multiple", String.join(", ", failedFiles)));
         }
 
         return loadedCount > 0 ? 1 : 0;
@@ -382,7 +407,7 @@ public class CommandRegistry {
 
     private int hideAllFiles(FabricClientCommandSource source) {
         if (markerStorage.getLoadedFiles().isEmpty()) {
-            source.sendFeedback(net.minecraft.text.Text.literal("§cNo files currently loaded!"));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.file.none_loaded"));
             return 0;
         }
 
@@ -395,7 +420,7 @@ public class CommandRegistry {
             }
         }
 
-        source.sendFeedback(net.minecraft.text.Text.literal("§aHidden " + hiddenCount + " file(s)!"));
+        source.sendFeedback(Text.translatable("command.boshysbteutils.file.hidden.multiple", hiddenCount));
         return hiddenCount > 0 ? 1 : 0;
     }
 
@@ -412,7 +437,7 @@ public class CommandRegistry {
         try { files.add(StringArgumentType.getString(context, "file5")); } catch (Exception e) {}
 
         if (files.isEmpty()) {
-            context.getSource().sendFeedback(net.minecraft.text.Text.literal("§cNo files specified! Usage: /boshys-bt-utils mergeMarkers <newname> <includeCachedMarkers|excludeCachedMarkers> <file1> [file2] [file3]..."));
+            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.merge.no_files"));
             return 0;
         }
 
@@ -449,7 +474,6 @@ public class CommandRegistry {
     private com.mojang.brigadier.suggestion.Suggestions suggestLoadableFilesWithWildcard(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         String remaining = builder.getRemaining().toLowerCase();
 
-        // Suggest wildcard first
         if ("*".startsWith(remaining)) {
             builder.suggest("*");
         }
@@ -481,7 +505,6 @@ public class CommandRegistry {
     private com.mojang.brigadier.suggestion.Suggestions suggestLoadedFilesWithWildcard(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         String remaining = builder.getRemaining().toLowerCase();
 
-        // Suggest wildcard first
         if ("*".startsWith(remaining)) {
             builder.suggest("*");
         }

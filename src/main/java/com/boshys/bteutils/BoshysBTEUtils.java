@@ -23,6 +23,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.item.ItemStack;
+import net.minecraft.text.Text;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -50,6 +51,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
     // File tracking
     public static final Map<MarkerData.TeleportMarker, String> markerOrigins = new HashMap<>();
     public static final Map<MarkerData.TeleportMarker, Vec3d> markerOriginalPositions = new HashMap<>();
+
+    // Session state tracking for first-time messages
+    public static boolean hasAddedMarkerThisSession = false;
+    public static boolean hasSelectedMarkerThisSession = false;
 
     // State
     private static BoshysBTEUtilsConfig config;
@@ -135,6 +140,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
             markerStorage.performAutosave();
         });
 
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            // Reset session state when joining a server
+            hasAddedMarkerThisSession = false;
+            hasSelectedMarkerThisSession = false;
+        });
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client == null || client.player == null || client.world == null) return;
 
@@ -169,7 +180,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             try {
                 String clip = getClipboard(client);
                 if (clip == null || clip.isEmpty()) {
-                    notifyError(client, "§cClipboard empty!");
+                    notifyError(client, "command.boshysbteutils.error.clipboard_empty");
                     continue;
                 }
 
@@ -185,14 +196,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 client.player.networkHandler.sendChatCommand(commandNoSlash);
 
             } catch (Throwable t) {
-                notifyError(client, "§cError reading clipboard or sending command.");
+                notifyError(client, "command.boshysbteutils.error.clipboard_error");
                 waitingForTeleport = false;
             }
         }
 
         while (addMarkerKeybind.wasPressed()) {
             if (!config.enableMarkers) {
-                notifyError(client, "§cMarkers disabled in config!");
+                notifyError(client, "command.boshysbteutils.error.markers_disabled");
                 continue;
             }
 
@@ -206,18 +217,25 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 MarkerData.handleAutoConnect(newMarker);
             }
 
-            notifyError(client, "§aMarker added at your location!");
+            // Check if this is the first marker added this session via manual add
+            if (!hasAddedMarkerThisSession) {
+                sendFirstMarkerMessage(client);
+                hasAddedMarkerThisSession = true;
+            } else {
+                // Subsequent markers - action bar only
+                notifyActionBar(client, "command.boshysbteutils.marker.added_actionbar");
+            }
         }
 
         while (clearMarkersKeybind.wasPressed()) {
             int cacheCount = markerStorage.getCacheMarkerCount();
             if (config.enableClearConfirmation && cacheCount > config.clearConfirmLimit) {
                 markerStorage.setPendingClear(cacheCount, false);
-                notifyError(client, "§eAre you sure? This will clear " + cacheCount + " cache markers. Use /boshys-bt-utils confirmClear to confirm.");
+                notifyError(client, "command.boshysbteutils.marker.confirm.required", cacheCount);
                 continue;
             }
             int count = markerStorage.clearCacheMarkersOnly();
-            notifyError(client, "§aCleared " + count + " cache markers! Loaded files remain active.");
+            notifyActionBar(client, "command.boshysbteutils.marker.cleared", count);
         }
 
         while (deleteMarkerKeybind.wasPressed()) {
@@ -227,15 +245,33 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     MarkerData.deleteMarker(marker);
                 }
                 selectedMarkers.clear();
-                notifyError(client, "§aDeleted " + count + " selected marker(s)!");
+                notifyActionBar(client, "command.boshysbteutils.marker.deleted", count);
             } else {
-                notifyError(client, "§cNo markers selected! Right-click markers to select them.");
+                notifyError(client, "command.boshysbteutils.marker.no_selection");
             }
         }
     }
 
+    private static void sendFirstMarkerMessage(MinecraftClient client) {
+        if (client.player == null) return;
+
+        // Send header
+        client.player.sendMessage(Text.literal("§7============= §aBoshy's BT-Utils §7============="), false);
+        // Empty line
+        client.player.sendMessage(Text.literal(""), false);
+        // Message 1
+        client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.first_time.select"), false);
+        // Empty line
+        client.player.sendMessage(Text.literal(""), false);
+        // Message 2
+        client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.first_time.multiselect"), false);
+        // Empty line
+        client.player.sendMessage(Text.literal(""), false);
+        // Message 3
+        client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.first_time.move"), false);
+    }
+
     private void handleTpllTeleportDetection(MinecraftClient client) {
-        // Don't interfere with KML import - it has its own teleport detection
         if (kmlImportHandler.isImporting()) {
             return;
         }
@@ -266,6 +302,9 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 if (config.enableAutoLineConnection) {
                     MarkerData.handleAutoConnect(newMarker);
                 }
+
+                // Auto TPLL markers - no message (original behavior)
+                // Only manual addMarker shows messages
 
                 waitingForTeleport = false;
                 commandCooldownTicks = 0;
@@ -328,9 +367,9 @@ public class BoshysBTEUtils implements ClientModInitializer {
             if (selectedMarkers.contains(hitMarker)) {
                 selectedMarkers.remove(hitMarker);
                 if (selectedMarkers.isEmpty()) {
-                    notifyError(client, "§eMarker deselected. No markers selected.");
+                    notifyActionBar(client, "command.boshysbteutils.marker.deselected.none");
                 } else {
-                    notifyError(client, "§eMarker deselected. " + selectedMarkers.size() + " marker(s) still selected.");
+                    notifyActionBar(client, "command.boshysbteutils.marker.deselected", selectedMarkers.size());
                 }
             } else {
                 if (selectedMarkers.size() == 1 && !multiSelect) {
@@ -338,15 +377,15 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
                     if (selectedMarker == hitMarker) {
                         selectedMarkers.clear();
-                        notifyError(client, "§eMarker deselected.");
+                        notifyActionBar(client, "command.boshysbteutils.marker.deselected.single");
                     } else if (MarkerData.areMarkersConnected(selectedMarker, hitMarker)) {
                         MarkerData.disconnectMarkers(selectedMarker, hitMarker);
                         selectedMarkers.clear();
-                        notifyError(client, "§cDisconnected markers!");
+                        notifyActionBar(client, "command.boshysbteutils.marker.disconnected");
                     } else {
                         MarkerData.connectMarkers(selectedMarker, hitMarker);
                         selectedMarkers.clear();
-                        notifyError(client, "§aConnected markers!");
+                        notifyActionBar(client, "command.boshysbteutils.marker.connected");
                     }
                 } else {
                     if (!multiSelect) {
@@ -354,14 +393,40 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     }
                     selectedMarkers.add(hitMarker);
 
-                    if (selectedMarkers.size() == 1) {
-                        notifyError(client, "§aMarker selected! Right-click another to connect, press Delete to remove, or Ctrl/Shift+click for multi-select.");
+                    // Check if this is the first selection this session
+                    if (!hasSelectedMarkerThisSession) {
+                        sendFirstSelectionMessage(client);
+                        hasSelectedMarkerThisSession = true;
                     } else {
-                        notifyError(client, "§a" + selectedMarkers.size() + " markers selected! Use /boshys-bt-utils moveMarker to move them.");
+                        // Subsequent selections - action bar only
+                        if (selectedMarkers.size() == 1) {
+                            notifyActionBar(client, "command.boshysbteutils.marker.selected_actionbar.single");
+                        } else {
+                            notifyActionBar(client, "command.boshysbteutils.marker.selected_actionbar.multiple", selectedMarkers.size());
+                        }
                     }
                 }
             }
         }
+    }
+
+    private void sendFirstSelectionMessage(MinecraftClient client) {
+        if (client.player == null) return;
+
+        // Send header
+        client.player.sendMessage(Text.literal("§7============= §aBoshy's BT-Utils §7============="), false);
+        // Empty line
+        client.player.sendMessage(Text.literal(""), false);
+        // Message 1
+        client.player.sendMessage(Text.translatable("command.boshysbteutils.selection.first_time.connect"), false);
+        // Empty line
+        client.player.sendMessage(Text.literal(""), false);
+        // Message 2
+        client.player.sendMessage(Text.translatable("command.boshysbteutils.selection.first_time.disconnect"), false);
+        // Empty line
+        client.player.sendMessage(Text.literal(""), false);
+        // Message 3
+        client.player.sendMessage(Text.translatable("command.boshysbteutils.selection.first_time.edit_colour"), false);
     }
 
     private String getClipboard(MinecraftClient client) {
@@ -384,15 +449,17 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
     }
 
-    private void notifyError(MinecraftClient client, String msg) {
+    private void notifyError(MinecraftClient client, String translationKey, Object... args) {
         if (client == null || client.player == null) return;
-        String safe = Objects.toString(msg, "");
-        if (safe.length() > 300) safe = safe.substring(0, 300) + "...";
-        client.player.sendMessage(net.minecraft.text.Text.literal(safe), false);
+        client.player.sendMessage(Text.translatable(translationKey, args).formatted(net.minecraft.util.Formatting.RED), false);
+    }
+
+    private void notifyActionBar(MinecraftClient client, String translationKey, Object... args) {
+        if (client == null || client.player == null) return;
+        client.player.sendMessage(Text.translatable(translationKey, args).formatted(net.minecraft.util.Formatting.GREEN), true);
     }
 
     public void onCommandSent(String command) {
-        // Don't set waitingForTeleport if KML import is active - it handles its own state
         if (kmlImportHandler.isImporting()) {
             return;
         }
@@ -417,12 +484,8 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
     }
 
-    // Called when player position changes significantly - used by KML import
-    // Called when player position changes significantly - used by KML import
     public void onPlayerTeleported(MinecraftClient client, double oldX, double oldY, double oldZ, double newX, double newY, double newZ) {
-        // Don't interfere with KML import - it has its own marker placement logic in placeMarkerAndContinue
         if (kmlImportHandler.isImporting()) {
-            // Just notify KML handler that teleport is complete - it will place the marker
             kmlImportHandler.onMarkerPlaced(client);
             return;
         }
@@ -434,13 +497,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
         );
 
         if (distanceMoved > 0.1) {
-            // Add marker at new position (only for non-KML teleports)
             MarkerData.TeleportMarker newMarker = MarkerData.addMarker(new Vec3d(newX, newY, newZ));
 
-            // Auto-connect markers (only for non-KML, since KML handles this in placeMarkerAndContinue)
             if (config.enableAutoLineConnection) {
                 MarkerData.handleAutoConnect(newMarker);
             }
+
+            // Auto TPLL markers from mixin - no message (original behavior)
+            // Only manual addMarker shows messages
         }
     }
 

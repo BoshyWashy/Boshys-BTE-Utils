@@ -1,0 +1,37 @@
+{
+  "key.category.boshysbteutils.bteutils": "Utilitaires BTE de Boshy",
+  "key.boshysbteutils.tpll": "Exécuter /tpll avec presse-papiers",
+  "key.boshysbteutils.addmarker": "Ajouter Marqueur au Joueur",
+  "key.boshysbteutils.clearmarkers": "Effacer Tous les Marqueurs",
+  "key.boshysbteutils.selectmarker": "Sélectionner/Connecter Marqueur",
+  "key.boshysbteutils.deletemarker": "Supprimer Marqueur(s) Sélectionné(s)",
+
+  "command.boshysbteutils.marker.added": "§aMarqueur ajouté à votre position!",
+  "command.boshysbteutils.marker.added_actionbar": "§aMarqueur Ajouté!",
+  "command.boshysbteutils.marker.first_time.select": "§7- §aSélectionnez les marqueurs en cliquant dessus",
+  "command.boshysbteutils.marker.first_time.multiselect": "§7- §aSélectionnez plusieurs marqueurs en maintenant ctrl/shift enfoncé",
+  "command.boshysbteutils.marker.first_time.move": "§7- §aDéplacez les marqueurs en utilisant \"/boshys-bt-utils moveMarker\"",
+  "command.boshysbteutils.marker.cleared": "§aEffacé %d§a marqueurs cache! Fichiers chargés restent actifs.",
+  "command.boshysbteutils.marker.cleared.all": "§aEffacé %d§a marqueurs et déchargé tous les fichiers!",
+  "command.boshysbteutils.marker.confirm.required": "§eÊtes-vous sûr? Cela effacera %d§e marqueurs cache. Utilisez /boshys-bt-utils confirmClear pour confirmer.",
+  "command.boshysbteutils.marker.deleted": "§aSupprimé %d§a marqueur(s) sélectionné(s)!",
+  "command.boshysbteutils.marker.selected.single": "§aMarqueur sélectionné! Clic droit sur un autre pour connecter.",
+  "command.boshysbteutils.marker.selected.multiple": "§a%d§a marqueurs sélectionnés!",
+  "command.boshysbteutils.marker.selected_actionbar.single": "§aMarqueur Sélectionné!",
+  "command.boshysbteutils.marker.selected_actionbar.multiple": "§a%d§a Marqueurs Sélectionnés!",
+  "command.boshysbteutils.error.markers_disabled": "§cMarqueurs désactivés dans la config!",
+  "command.boshysbteutils.error.clipboard_empty": "§cPresse-papiers vide!",
+
+  "command.boshysbteutils.selection.first_time.connect": "§7- §aSélectionnez deux marqueurs pour les connecter avec une ligne",
+  "command.boshysbteutils.selection.first_time.disconnect": "§7- §aSélectionnez deux marqueurs avec une ligne connectée entre eux pour supprimer la ligne",
+  "command.boshysbteutils.selection.first_time.edit_colour": "§7- §aModifiez la couleur de la ligne et du marqueur dans ModMenu",
+
+  "command.boshysbteutils.kml.import.started": "=== DÉMARRAGE IMPORTATION KML ===",
+  "command.boshysbteutils.kml.import.warning": "NE TOUCHEZ PAS MINECRAFT JUSQU'À CE QUE L'IMPORTATION SOIT TERMINÉE!",
+  "command.boshysbteutils.kml.import.complete": "=== IMPORTATION KML TERMINÉE ===",
+  "command.boshysbteutils.kml.import.success": "§aImporté %d§a points de '%s'",
+  "command.boshysbteutils.kml.import.normal": "§aVous pouvez maintenant utiliser Minecraft normalement.",
+  "command.boshysbteutils.kml.import.timeout_warning": "§ePoint %d§e expiré (lag détecté), continuation...",
+
+  "text.autoconfig.boshysbteutils.title": "Configuration Boshys BTE Utils"
+}

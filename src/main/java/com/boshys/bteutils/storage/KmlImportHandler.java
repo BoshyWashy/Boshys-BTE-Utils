@@ -34,19 +34,21 @@ public class KmlImportHandler {
     private int worldEditCommandTickCounter = 0;
     private boolean waitingForWorldEditCommand = false;
     private boolean worldEditSetupComplete = false;
-    private boolean waitingForTeleport = false;
-    private int teleportWaitTicks = 0;
-    private static final int TELEPORT_WAIT_MAX = 40; // Safety timeout only
 
-    // Position tracking for immediate teleport detection
+    // Enhanced teleport detection for bad ping
+    private boolean waitingForTeleport = false;
     private Vec3d positionBeforeTpll = null;
-    private boolean teleportDetected = false;
+    private Vec3d lastCheckedPosition = null;
+    private int teleportCheckTicks = 0;
+    private static final int TELEPORT_TIMEOUT_TICKS = 100; // 5 seconds max wait
+    private static final double MINIMUM_MOVEMENT = 0.5; // Must move at least 0.5 blocks
+    private int stablePositionTicks = 0; // How long position has been stable after movement
 
     private boolean inWorldEditSetupPhase = false;
     private int setupCommandIndex = 0;
     private List<String> setupCommands = new ArrayList<>();
 
-    // Cooldown counter - time to wait before sending next TPLL (after marker is placed)
+    // Cooldown counter
     private int cooldownTicks = 0;
 
     public KmlImportHandler(BoshysBTEUtils mod) {
@@ -58,7 +60,6 @@ public class KmlImportHandler {
     }
 
     public void tick(MinecraftClient client) {
-        // Handle initial start delay
         if (kmlImportWaitingToStart) {
             if (kmlImportStartDelayTicks > 0) {
                 kmlImportStartDelayTicks--;
@@ -70,18 +71,21 @@ public class KmlImportHandler {
             kmlCurrentPointIndex = 0;
             worldEditSetupComplete = false;
             waitingForTeleport = false;
-            teleportWaitTicks = 0;
-            teleportDetected = false;
-            positionBeforeTpll = null;
+            teleportCheckTicks = 0;
+            stablePositionTicks = 0;
             inWorldEditSetupPhase = false;
             cooldownTicks = 0;
+            positionBeforeTpll = null;
+            lastCheckedPosition = null;
 
-            showImportTitle(client, "§c§lImport in progress", "§eDo not move until finished!");
+            showImportTitle(client,
+                    Text.translatable("command.boshysbteutils.kml.import.title.active").getString(),
+                    Text.translatable("command.boshysbteutils.kml.import.subtitle.dont_move").getString()
+            );
 
             if (BoshysBTEUtils.getConfig().enableWorldEditLines) {
                 startWorldEditSetup(client);
             } else {
-                // Start immediately - no cooldown before first TPLL
                 processNextKmlPoint(client);
             }
             return;
@@ -101,31 +105,58 @@ public class KmlImportHandler {
             return;
         }
 
-        // Handle waiting for teleport to complete
-        // Check every tick if player has moved from where they were when TPLL was sent
+        // Enhanced teleport detection with bad ping compensation
         if (waitingForTeleport) {
-            if (client.player != null && positionBeforeTpll != null) {
-                Vec3d currentPos = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
-                double distanceMoved = currentPos.distanceTo(positionBeforeTpll);
-
-                // If player has moved more than 0.1 blocks, teleport has occurred
-                if (distanceMoved > 0.1) {
-                    waitingForTeleport = false;
-                    teleportWaitTicks = 0;
-                    teleportDetected = true;
-                    // Place marker immediately at current position
-                    placeMarkerAndContinue(client);
-                    return;
-                }
+            if (client.player == null || positionBeforeTpll == null) {
+                // Safety fallback - player is null, skip this point
+                waitingForTeleport = false;
+                teleportCheckTicks = 0;
+                placeMarkerAndContinue(client, true); // true = forced/skip
+                return;
             }
 
-            // Player hasn't moved yet, check timeout
-            teleportWaitTicks++;
-            if (teleportWaitTicks >= TELEPORT_WAIT_MAX) {
-                // Timeout fallback - place marker anyway
+            Vec3d currentPos = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
+            double distanceMoved = currentPos.distanceTo(positionBeforeTpll);
+
+            // Update title with progress
+            if (teleportCheckTicks % 20 == 0) { // Update every second
+                showImportTitle(client,
+                        Text.translatable("command.boshysbteutils.kml.import.title.active").getString(),
+                        Text.translatable("command.boshysbteutils.kml.import.progress.detailed",
+                                kmlCurrentPointIndex + 1, pendingKmlPoints.size(), (int)distanceMoved).getString()
+                );
+            }
+
+            // Check if we've moved significantly (teleport completed)
+            if (distanceMoved > MINIMUM_MOVEMENT) {
+                // We've moved! But wait a moment to ensure position is stable (server lag compensation)
+                if (lastCheckedPosition != null) {
+                    double movementSinceLastTick = currentPos.distanceTo(lastCheckedPosition);
+                    if (movementSinceLastTick < 0.01) {
+                        // Position is stable (not still moving)
+                        stablePositionTicks++;
+                        if (stablePositionTicks >= 2) { // Wait 2 ticks of stability
+                            waitingForTeleport = false;
+                            placeMarkerAndContinue(client, false);
+                            return;
+                        }
+                    } else {
+                        // Still moving, reset stability counter
+                        stablePositionTicks = 0;
+                    }
+                }
+            } else {
+                // Haven't moved yet, reset stability
+                stablePositionTicks = 0;
+            }
+
+            lastCheckedPosition = currentPos;
+            teleportCheckTicks++;
+
+            // Timeout check - if we've waited too long, force continue
+            if (teleportCheckTicks >= TELEPORT_TIMEOUT_TICKS) {
                 waitingForTeleport = false;
-                teleportWaitTicks = 0;
-                placeMarkerAndContinue(client);
+                placeMarkerAndContinue(client, true); // true = forced due to timeout
             }
             return;
         }
@@ -150,13 +181,13 @@ public class KmlImportHandler {
             return;
         }
 
-        // Cooldown between TPLL commands - this runs AFTER marker is placed
+        // Cooldown between points
         if (cooldownTicks > 0) {
             cooldownTicks--;
             return;
         }
 
-        // Ready to send next TPLL
+        // Ready for next point
         processNextKmlPoint(client);
     }
 
@@ -169,7 +200,7 @@ public class KmlImportHandler {
         setupCommands.add("/sel cuboid");
         setupCommands.add("gamemode spectator");
 
-        cooldownTicks = 0;
+        cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
         executeNextSetupCommand(client);
     }
 
@@ -210,57 +241,66 @@ public class KmlImportHandler {
         String commandPrefix = BoshysBTEUtils.getConfig().commandPrefix;
         String tpllCommand = commandPrefix + " " + point.latitude + ", " + point.longitude;
 
-        // Store position before sending TPLL
+        // Store position before TPLL
         positionBeforeTpll = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
-        teleportDetected = false;
+        lastCheckedPosition = null;
+        stablePositionTicks = 0;
+        teleportCheckTicks = 0;
 
         client.player.networkHandler.sendChatCommand(tpllCommand);
 
         waitingForTeleport = true;
-        teleportWaitTicks = 0;
 
+        // Show initial progress
         if (kmlCurrentPointIndex % 5 == 0 || kmlCurrentPointIndex >= pendingKmlPoints.size() - 1) {
-            showImportTitle(client, "§c§lImport in progress",
-                    "§ePoint " + (kmlCurrentPointIndex + 1) + "/" + pendingKmlPoints.size() + " - Do not move!");
+            showImportTitle(client,
+                    Text.translatable("command.boshysbteutils.kml.import.title.active").getString(),
+                    Text.translatable("command.boshysbteutils.kml.import.progress",
+                            kmlCurrentPointIndex + 1, pendingKmlPoints.size()).getString()
+            );
         }
     }
 
-    // Called when teleport is detected via mixin (backup method)
     public void onMarkerPlaced(MinecraftClient client) {
-        if (!isKmlImporting) return;
-        if (!waitingForTeleport) return;
-        if (teleportDetected) return; // Already detected via position check
+        // Backup detection method via mixin
+        if (!isKmlImporting || !waitingForTeleport) return;
 
-        // Double-check position changed
         if (client.player != null && positionBeforeTpll != null) {
             Vec3d currentPos = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
-            if (currentPos.distanceTo(positionBeforeTpll) > 0.1) {
+            if (currentPos.distanceTo(positionBeforeTpll) > MINIMUM_MOVEMENT) {
                 waitingForTeleport = false;
-                teleportWaitTicks = 0;
-                teleportDetected = true;
-                placeMarkerAndContinue(client);
+                placeMarkerAndContinue(client, false);
             }
         }
     }
 
-    private void placeMarkerAndContinue(MinecraftClient client) {
-        // Place marker at player's current position (where they teleported to)
-        if (client.player != null) {
-            MarkerData.TeleportMarker newMarker = MarkerData.addMarker(
-                    new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ())
+    private void placeMarkerAndContinue(MinecraftClient client, boolean forced) {
+        if (client.player == null) {
+            kmlCurrentPointIndex++;
+            return;
+        }
+
+        // Place marker at current position
+        MarkerData.TeleportMarker newMarker = MarkerData.addMarker(
+                new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ())
+        );
+
+        // Auto-connect with previous marker
+        if (BoshysBTEUtils.lastAddedMarker != null && BoshysBTEUtils.lastAddedMarker != newMarker) {
+            MarkerData.connectMarkers(BoshysBTEUtils.lastAddedMarker, newMarker);
+        }
+
+        BoshysBTEUtils.lastAddedMarker = newMarker;
+        BoshysBTEUtils.selectedMarkers.clear();
+        BoshysBTEUtils.selectedMarkers.add(newMarker);
+
+        // Send action bar message if forced (timeout)
+        if (forced && client.player != null) {
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.import.timeout_warning",
+                            kmlCurrentPointIndex + 1).formatted(net.minecraft.util.Formatting.YELLOW),
+                    true
             );
-
-            // Auto-connect with previous marker
-            if (BoshysBTEUtils.lastAddedMarker != null && BoshysBTEUtils.lastAddedMarker != newMarker) {
-                MarkerData.connectMarkers(BoshysBTEUtils.lastAddedMarker, newMarker);
-            }
-
-            // Update tracking for next marker connection
-            BoshysBTEUtils.lastAddedMarker = newMarker;
-
-            // Select the marker so it can connect to the next one
-            BoshysBTEUtils.selectedMarkers.clear();
-            BoshysBTEUtils.selectedMarkers.add(newMarker);
         }
 
         // Advance to next point
@@ -286,7 +326,7 @@ public class KmlImportHandler {
             return;
         }
 
-        // Set cooldown for next TPLL - cooldown starts NOW, AFTER marker is placed
+        // Set cooldown for next TPLL
         cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
     }
 
@@ -297,11 +337,9 @@ public class KmlImportHandler {
         String block = BoshysBTEUtils.getConfig().worldEditLineBlock;
         int currentPoint = kmlCurrentPointIndex;
 
-        if (currentPoint == 0) {
-            // First point - just set pos1
+        if (currentPoint == 1) { // First point (index already incremented)
             worldEditCommandQueue.add("/pos1");
-        } else if (currentPoint > 0 && currentPoint < pendingKmlPoints.size()) {
-            // Middle points - set pos2, draw line, then set pos1 for next
+        } else if (currentPoint > 1 && currentPoint <= pendingKmlPoints.size()) {
             worldEditCommandQueue.add("/pos2");
             worldEditCommandQueue.add("/line " + block);
             worldEditCommandQueue.add("/pos1");
@@ -315,10 +353,8 @@ public class KmlImportHandler {
         }
 
         if (worldEditCommandIndex >= worldEditCommandQueue.size()) {
-            // WorldEdit commands done
             waitingForWorldEditCommand = false;
 
-            // Check for post commands
             if (!kmlPostCommandsList.isEmpty()) {
                 kmlWaitingForPostCommand = true;
                 kmlPostCommandIndex = 0;
@@ -327,7 +363,6 @@ public class KmlImportHandler {
                 return;
             }
 
-            // Set cooldown for next TPLL - cooldown starts after WorldEdit commands complete
             cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
             return;
         }
@@ -336,8 +371,6 @@ public class KmlImportHandler {
         worldEditCommandIndex++;
 
         client.player.networkHandler.sendChatCommand(command);
-
-        // Set cooldown for next WorldEdit command
         worldEditCommandTickCounter = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
     }
 
@@ -350,8 +383,6 @@ public class KmlImportHandler {
         if (kmlPostCommandIndex >= kmlPostCommandsList.size()) {
             kmlWaitingForPostCommand = false;
             kmlPostCommandIndex = 0;
-
-            // Set cooldown for next TPLL - cooldown starts after post commands complete
             cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
             return;
         }
@@ -365,7 +396,6 @@ public class KmlImportHandler {
         }
         client.player.networkHandler.sendChatCommand(commandToSend);
 
-        // Set cooldown for next post command
         kmlPostCommandTickCounter = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
     }
 
@@ -378,18 +408,18 @@ public class KmlImportHandler {
 
     public int importKmlFile(net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source, String filename) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
-            source.sendFeedback(Text.literal("§cMarkers disabled in config!"));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
             return 0;
         }
 
         if (isKmlImporting || kmlImportWaitingToStart) {
-            source.sendFeedback(Text.literal("§cKML import already in progress! Please wait..."));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.in_progress"));
             return 0;
         }
 
         String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
         if (cleanFilename.isEmpty()) {
-            source.sendFeedback(Text.literal("§cInvalid filename!"));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.file.invalid_name"));
             return 0;
         }
 
@@ -401,19 +431,21 @@ public class KmlImportHandler {
         }
 
         if (!kmlFile.exists()) {
-            source.sendFeedback(Text.literal("§cKML file '" + cleanFilename + "' not found in " + kmlPath.toString()));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.file_not_found",
+                    cleanFilename, kmlPath.toString()));
             return 0;
         }
 
         List<MarkerData.KmlPoint> points = parseKmlFile(kmlFile);
 
         if (points.isEmpty()) {
-            source.sendFeedback(Text.literal("§cNo valid coordinates found in KML file!"));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.no_points"));
             return 0;
         }
 
         kmlPostCommandsList.clear();
-        if (BoshysBTEUtils.getConfig().kmlPostImportCommands != null && !BoshysBTEUtils.getConfig().kmlPostImportCommands.isEmpty()) {
+        if (BoshysBTEUtils.getConfig().kmlPostImportCommands != null &&
+                !BoshysBTEUtils.getConfig().kmlPostImportCommands.isEmpty()) {
             String[] commands = BoshysBTEUtils.getConfig().kmlPostImportCommands.split(";");
             for (String cmd : commands) {
                 cmd = cmd.trim();
@@ -432,21 +464,22 @@ public class KmlImportHandler {
         worldEditLinesActive = false;
         worldEditSetupComplete = false;
         waitingForTeleport = false;
-        teleportWaitTicks = 0;
-        teleportDetected = false;
-        positionBeforeTpll = null;
         inWorldEditSetupPhase = false;
         cooldownTicks = 0;
+        positionBeforeTpll = null;
+        lastCheckedPosition = null;
 
         kmlImportWaitingToStart = true;
         kmlImportStartDelayTicks = BoshysBTEUtils.getConfig().kmlImportStartDelaySeconds * 20;
 
-        source.sendFeedback(Text.literal("§e§l=== KML IMPORT STARTING ==="));
-        source.sendFeedback(Text.literal("§e§lDO NOT TOUCH YOUR MINECRAFT UNTIL IMPORT IS COMPLETE!"));
-        source.sendFeedback(Text.literal("§eImporting " + points.size() + " points with " + BoshysBTEUtils.getConfig().kmlImportDelayTicks + " tick delay"));
+        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.started").formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
+        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.warning").formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
+        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.details",
+                points.size(), BoshysBTEUtils.getConfig().kmlImportDelayTicks));
 
         if (BoshysBTEUtils.getConfig().enableWorldEditLines) {
-            source.sendFeedback(Text.literal("§eWorldEdit lines enabled with block: " + BoshysBTEUtils.getConfig().worldEditLineBlock));
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.worldedit_enabled",
+                    BoshysBTEUtils.getConfig().worldEditLineBlock));
         }
 
         return 1;
@@ -538,9 +571,19 @@ public class KmlImportHandler {
         }
 
         if (client.player != null) {
-            client.player.sendMessage(Text.literal("§a§l=== KML IMPORT COMPLETE ==="), false);
-            client.player.sendMessage(Text.literal("§aImported " + importedCount + " points from '" + currentKmlFileName + "'"), false);
-            client.player.sendMessage(Text.literal("§aYou can now use Minecraft normally."), false);
+            // Send advancement-like toast message (simulated via chat for now, but distinct)
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.import.complete").formatted(net.minecraft.util.Formatting.GREEN, net.minecraft.util.Formatting.BOLD),
+                    false
+            );
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.import.success", importedCount, currentKmlFileName).formatted(net.minecraft.util.Formatting.GREEN),
+                    false
+            );
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.import.normal").formatted(net.minecraft.util.Formatting.GREEN),
+                    true // Action bar
+            );
         }
 
         pendingKmlPoints.clear();
@@ -556,7 +599,7 @@ public class KmlImportHandler {
         inWorldEditSetupPhase = false;
         cooldownTicks = 0;
         positionBeforeTpll = null;
-        teleportDetected = false;
+        lastCheckedPosition = null;
         worldEditCommandQueue.clear();
         setupCommands.clear();
     }
