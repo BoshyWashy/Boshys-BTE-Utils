@@ -298,7 +298,7 @@ public class MarkerStorage {
 
         Text message = Text.literal("§aSaved " + markersToSave.size() + " markers to '")
                 .append(Text.literal(filename).styled(style -> style.withBold(true)))
-                .append(Text.literal("' and loaded it!"))
+                .append(Text.literal("' §aand loaded it!"))
                 .styled(style -> style
                         .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
                         .withHoverEvent(new HoverEvent.ShowText(Text.literal("§eClick to open folder")))

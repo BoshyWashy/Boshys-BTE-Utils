@@ -1,4 +1,4 @@
-package com.boshys.bteutils.data;
+/* package com.boshys.bteutils.data;
 
 import net.minecraft.util.math.Vec3d;
 
@@ -68,3 +68,4 @@ public class ImageOverlay {
         return copy;
     }
 }
+*/

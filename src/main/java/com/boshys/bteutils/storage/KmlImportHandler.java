@@ -1,6 +1,7 @@
 package com.boshys.bteutils.storage;
 
 import com.boshys.bteutils.BoshysBTEUtils;
+import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
 import com.boshys.bteutils.data.MarkerData;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
@@ -45,6 +46,7 @@ public class KmlImportHandler {
     private int stablePositionTicks = 0; // How long position has been stable after movement
 
     private boolean inWorldEditSetupPhase = false;
+    private boolean inSpectatorSetupPhase = false;
     private int setupCommandIndex = 0;
     private List<String> setupCommands = new ArrayList<>();
 
@@ -74,6 +76,7 @@ public class KmlImportHandler {
             teleportCheckTicks = 0;
             stablePositionTicks = 0;
             inWorldEditSetupPhase = false;
+            inSpectatorSetupPhase = false;
             cooldownTicks = 0;
             positionBeforeTpll = null;
             lastCheckedPosition = null;
@@ -83,11 +86,8 @@ public class KmlImportHandler {
                     Text.translatable("command.boshysbteutils.kml.import.subtitle.dont_move").getString()
             );
 
-            if (BoshysBTEUtils.getConfig().enableWorldEditLines) {
-                startWorldEditSetup(client);
-            } else {
-                processNextKmlPoint(client);
-            }
+            // Always start with spectator setup, regardless of WorldEdit lines setting
+            startSpectatorSetup(client);
             return;
         }
 
@@ -95,7 +95,17 @@ public class KmlImportHandler {
             return;
         }
 
-        // Handle WorldEdit setup phase
+        // Handle spectator setup phase (runs for both WorldEdit enabled and disabled)
+        if (inSpectatorSetupPhase) {
+            if (cooldownTicks > 0) {
+                cooldownTicks--;
+                return;
+            }
+            executeNextSpectatorSetupCommand(client);
+            return;
+        }
+
+        // Handle WorldEdit setup phase (only when WorldEdit enabled)
         if (inWorldEditSetupPhase) {
             if (cooldownTicks > 0) {
                 cooldownTicks--;
@@ -191,6 +201,45 @@ public class KmlImportHandler {
         processNextKmlPoint(client);
     }
 
+    private void startSpectatorSetup(MinecraftClient client) {
+        inSpectatorSetupPhase = true;
+        setupCommandIndex = 0;
+        setupCommands.clear();
+
+        // Always switch to spectator mode first
+        setupCommands.add("gamemode spectator");
+
+        cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
+        executeNextSpectatorSetupCommand(client);
+    }
+
+    private void executeNextSpectatorSetupCommand(MinecraftClient client) {
+        if (!isKmlImporting || client.player == null) {
+            inSpectatorSetupPhase = false;
+            return;
+        }
+
+        if (setupCommandIndex >= setupCommands.size()) {
+            inSpectatorSetupPhase = false;
+
+            // Now check if we need WorldEdit setup or go straight to processing
+            if (BoshysBTEUtils.getConfig().enableWorldEditLines) {
+                startWorldEditSetup(client);
+            } else {
+                worldEditSetupComplete = true;
+                cooldownTicks = 0;
+                processNextKmlPoint(client);
+            }
+            return;
+        }
+
+        String command = setupCommands.get(setupCommandIndex);
+        setupCommandIndex++;
+
+        client.player.networkHandler.sendChatCommand(command);
+        cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
+    }
+
     private void startWorldEditSetup(MinecraftClient client) {
         inWorldEditSetupPhase = true;
         setupCommandIndex = 0;
@@ -198,7 +247,6 @@ public class KmlImportHandler {
 
         setupCommands.add("/sel");
         setupCommands.add("/sel cuboid");
-        setupCommands.add("gamemode spectator");
 
         cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
         executeNextSetupCommand(client);
@@ -238,10 +286,10 @@ public class KmlImportHandler {
 
         MarkerData.KmlPoint point = pendingKmlPoints.get(kmlCurrentPointIndex);
 
-        String commandPrefix = BoshysBTEUtils.getConfig().commandPrefix;
-        String tpllCommand = commandPrefix + " " + point.latitude + ", " + point.longitude;
+        // Build TPLL command based on altitude mode
+        String tpllCommand = buildTpllCommand(point);
 
-        // Store position before TPLL
+        // Store position before TPLL for teleport detection
         positionBeforeTpll = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
         lastCheckedPosition = null;
         stablePositionTicks = 0;
@@ -259,6 +307,43 @@ public class KmlImportHandler {
                             kmlCurrentPointIndex + 1, pendingKmlPoints.size()).getString()
             );
         }
+    }
+
+    /**
+     * Builds the TPLL command based on the configured altitude mode and offset
+     */
+    private String buildTpllCommand(MarkerData.KmlPoint point) {
+        String commandPrefix = BoshysBTEUtils.getConfig().commandPrefix;
+        double altitude = 0;
+        boolean includeAltitude = false;
+
+        BoshysBTEUtilsConfig.AltitudeMode mode = BoshysBTEUtils.getConfig().kmlAltitudeMode;
+        double offset = BoshysBTEUtils.getConfig().kmlAltitudeOffset;
+
+        switch (mode) {
+            case AUTOMATIC:
+                // No altitude argument - places at highest non-air block
+                return commandPrefix + " " + point.latitude + ", " + point.longitude;
+
+            case KML_ALTITUDES:
+                // Use altitude from KML file plus offset
+                altitude = point.altitude + offset;
+                includeAltitude = true;
+                break;
+
+            case LOCKED:
+                // Use locked altitude value plus offset
+                altitude = BoshysBTEUtils.getConfig().kmlLockedAltitudeValue + offset;
+                includeAltitude = true;
+                break;
+        }
+
+        if (includeAltitude) {
+            // Format: /tpll <lat>, <lon> <altitude>
+            return commandPrefix + " " + point.latitude + ", " + point.longitude + " " + altitude;
+        }
+
+        return commandPrefix + " " + point.latitude + ", " + point.longitude;
     }
 
     public void onMarkerPlaced(MinecraftClient client) {
@@ -280,7 +365,7 @@ public class KmlImportHandler {
             return;
         }
 
-        // Place marker at current position
+        // Place marker at current position (where player teleported to)
         MarkerData.TeleportMarker newMarker = MarkerData.addMarker(
                 new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ())
         );
@@ -465,6 +550,7 @@ public class KmlImportHandler {
         worldEditSetupComplete = false;
         waitingForTeleport = false;
         inWorldEditSetupPhase = false;
+        inSpectatorSetupPhase = false;
         cooldownTicks = 0;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
@@ -476,6 +562,18 @@ public class KmlImportHandler {
         source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.warning").formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
         source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.details",
                 points.size(), BoshysBTEUtils.getConfig().kmlImportDelayTicks));
+
+        // Show altitude mode info
+        BoshysBTEUtilsConfig.AltitudeMode mode = BoshysBTEUtils.getConfig().kmlAltitudeMode;
+        double offset = BoshysBTEUtils.getConfig().kmlAltitudeOffset;
+        String modeStr = switch(mode) {
+            case AUTOMATIC -> "Automatic (surface level)";
+            case KML_ALTITUDES -> "KML Altitudes";
+            case LOCKED -> "Locked (" + BoshysBTEUtils.getConfig().kmlLockedAltitudeValue + ")";
+        };
+
+        String offsetStr = offset != 0 ? " (offset: " + (offset > 0 ? "+" : "") + offset + ")" : "";
+        source.sendFeedback(Text.literal("§eAltitude mode: " + modeStr + offsetStr));
 
         if (BoshysBTEUtils.getConfig().enableWorldEditLines) {
             source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.worldedit_enabled",
@@ -492,7 +590,7 @@ public class KmlImportHandler {
             StringBuilder content = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
-                content.append(line).append("\n");
+                content.append(line).append("\\n");
             }
 
             String kmlContent = content.toString();
@@ -597,6 +695,7 @@ public class KmlImportHandler {
         worldEditSetupComplete = false;
         waitingForTeleport = false;
         inWorldEditSetupPhase = false;
+        inSpectatorSetupPhase = false;
         cooldownTicks = 0;
         positionBeforeTpll = null;
         lastCheckedPosition = null;

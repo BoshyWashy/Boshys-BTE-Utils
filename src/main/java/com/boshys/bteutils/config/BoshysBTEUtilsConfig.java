@@ -95,6 +95,19 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Commands to run after each TPLL during KML import (semicolon separated, e.g., //pos1;//pos2)")
     public String kmlPostImportCommands = "";
 
+    // Altitude Mode Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Altitude mode for KML imports: AUTOMATIC, KML_ALTITUDES, or LOCKED")
+    public AltitudeMode kmlAltitudeMode = AltitudeMode.AUTOMATIC;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Locked altitude value when using LOCKED altitude mode (can be any number, positive or negative)")
+    public double kmlLockedAltitudeValue = 64.0;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Altitude offset added to all KML points (positive or negative)")
+    public double kmlAltitudeOffset = 0.0;
+
     // WorldEdit Lines Settings
     @ConfigEntry.Gui.Tooltip
     @Comment("Enable automatic WorldEdit line creation during KML import")
@@ -104,13 +117,22 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Block to use for WorldEdit lines (default: diamond_block)")
     public String worldEditLineBlock = "diamond_block";
 
+    /**
+     * Altitude mode enum for KML imports
+     */
+    public enum AltitudeMode {
+        AUTOMATIC,      // No altitude argument, places at highest non-air block
+        KML_ALTITUDES,  // Uses altitude from KML file
+        LOCKED          // Uses fixed altitude value
+    }
+
     @Override
     public void validatePostLoad() {
         // Ensure commandPrefix is never null or empty
         if (commandPrefix == null || commandPrefix.trim().isEmpty()) {
             commandPrefix = "tpll";
         }
-        commandPrefix = commandPrefix.trim().replaceAll("\\s+", "");
+        commandPrefix = commandPrefix.trim().replaceAll("\s+", "");
 
         // Validate marker scale
         if (markerScale < 0.01f) markerScale = 0.01f;
@@ -149,10 +171,15 @@ public class BoshysBTEUtilsConfig implements ConfigData {
             kmlPostImportCommands = "";
         }
 
+        // Validate altitude mode
+        if (kmlAltitudeMode == null) {
+            kmlAltitudeMode = AltitudeMode.AUTOMATIC;
+        }
+
         // Validate WorldEdit line block
         if (worldEditLineBlock == null || worldEditLineBlock.trim().isEmpty()) {
             worldEditLineBlock = "diamond_block";
         }
-        worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\\s+", "_");
+        worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\s+", "_");
     }
 }

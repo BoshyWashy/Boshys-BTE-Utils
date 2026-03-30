@@ -851,6 +851,8 @@ public class ModMenuIntegration implements ModMenuApi {
         private TextFieldWidget pathField;
         private TextFieldWidget postCommandsField;
         private TextFieldWidget worldEditBlockField;
+        private TextFieldWidget lockedAltitudeField;
+        private TextFieldWidget altitudeOffsetField;
 
         public KMLImportingScreen(Screen parent) {
             super(Text.literal("KML Importing"));
@@ -960,11 +962,107 @@ public class ModMenuIntegration implements ModMenuApi {
             });
             this.addDrawableChild(postCommandsField);
 
+            // Altitude Mode Settings
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Altitude Mode Settings:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 330, 300, 20).build());
+
+            // Altitude Mode selection buttons (only one can be selected)
+            String automaticText = "[ " + (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.AUTOMATIC ? "X" : " ") + " ] Automatic";
+            String kmlAltitudesText = "[ " + (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.KML_ALTITUDES ? "X" : " ") + " ] KML-Altitudes";
+            String lockedText = "[ " + (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.LOCKED ? "X" : " ") + " ] Locked";
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(automaticText),
+                    button -> {
+                        config.kmlAltitudeMode = BoshysBTEUtilsConfig.AltitudeMode.AUTOMATIC;
+                        saveConfig();
+                        rebuildButtons();
+                    }
+            ).dimensions(centerX - 150, startY + 355, 145, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(kmlAltitudesText),
+                    button -> {
+                        config.kmlAltitudeMode = BoshysBTEUtilsConfig.AltitudeMode.KML_ALTITUDES;
+                        saveConfig();
+                        rebuildButtons();
+                    }
+            ).dimensions(centerX + 5, startY + 355, 145, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(lockedText),
+                    button -> {
+                        config.kmlAltitudeMode = BoshysBTEUtilsConfig.AltitudeMode.LOCKED;
+                        saveConfig();
+                        rebuildButtons();
+                    }
+            ).dimensions(centerX - 150, startY + 380, 145, 20).build());
+
+            // Description of current mode
+            String modeDescription = switch(config.kmlAltitudeMode) {
+                case AUTOMATIC -> "Places markers at surface level (highest non-air block)";
+                case KML_ALTITUDES -> "Uses altitude from KML file + offset";
+                case LOCKED -> "Uses fixed altitude value + offset";
+            };
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("§7" + modeDescription),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 405, 300, 15).build());
+
+            // Locked Altitude input (only show when Locked mode is selected)
+            if (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.LOCKED) {
+                this.addDrawableChild(ButtonWidget.builder(
+                        Text.literal("Locked Altitude Value:"),
+                        button -> {}
+                ).dimensions(centerX - 150, startY + 425, 140, 20).build());
+
+                lockedAltitudeField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 425, 140, 20, Text.literal("Altitude"));
+                lockedAltitudeField.setText(String.valueOf(config.kmlLockedAltitudeValue));
+                lockedAltitudeField.setChangedListener(text -> {
+                    try {
+                        double val = Double.parseDouble(text);
+                        config.kmlLockedAltitudeValue = val;
+                        saveConfig();
+                    } catch (NumberFormatException e) {
+                    }
+                });
+                this.addDrawableChild(lockedAltitudeField);
+            }
+
+            // Altitude Offset input (always visible)
+            int offsetY = config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.LOCKED ? 455 : 425;
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Altitude Offset:").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + offsetY, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("Added to altitude (positive or negative)"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + offsetY + 20, 300, 15).build());
+
+            altitudeOffsetField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + offsetY + 40, 300, 20, Text.literal("Offset"));
+            altitudeOffsetField.setText(String.valueOf(config.kmlAltitudeOffset));
+            altitudeOffsetField.setChangedListener(text -> {
+                try {
+                    double val = Double.parseDouble(text);
+                    config.kmlAltitudeOffset = val;
+                    saveConfig();
+                } catch (NumberFormatException e) {
+                }
+            });
+            this.addDrawableChild(altitudeOffsetField);
+
+            // Calculate next Y position based on whether locked altitude field is shown
+            int worldEditY = startY + offsetY + 75;
+
             // WorldEdit Lines Settings
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("WorldEdit Lines Settings:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 330, 300, 20).build());
+            ).dimensions(centerX - 150, worldEditY, 300, 20).build());
 
             // Enable WorldEdit lines toggle
             this.addDrawableChild(ButtonWidget.builder(
@@ -974,21 +1072,21 @@ public class ModMenuIntegration implements ModMenuApi {
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 355, 300, 20).build());
+            ).dimensions(centerX - 150, worldEditY + 25, 300, 20).build());
 
             // Warning text
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("§eWarning: It is recommended to add a gmask before enabling this"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 380, 300, 15).build());
+            ).dimensions(centerX - 150, worldEditY + 50, 300, 15).build());
 
             // WorldEdit block input field
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Block to use:"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 405, 140, 20).build());
+            ).dimensions(centerX - 150, worldEditY + 75, 140, 20).build());
 
-            worldEditBlockField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 405, 140, 20, Text.literal("Block"));
+            worldEditBlockField = new TextFieldWidget(this.textRenderer, centerX + 10, worldEditY + 75, 140, 20, Text.literal("Block"));
             worldEditBlockField.setText(config.worldEditLineBlock);
             worldEditBlockField.setChangedListener(text -> {
                 if (text != null && !text.trim().isEmpty()) {
@@ -999,99 +1097,104 @@ public class ModMenuIntegration implements ModMenuApi {
             this.addDrawableChild(worldEditBlockField);
 
             // Command section
+            int cmdY = worldEditY + 110;
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Import Command:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 440, 300, 20).build());
+            ).dimensions(centerX - 150, cmdY, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("/boshys-bt-utils importKML <filename>"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 465, 300, 15).build());
+            ).dimensions(centerX - 150, cmdY + 25, 300, 15).build());
 
             // Tutorial section
+            int tutorialY = cmdY + 55;
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("How to Import KML Files:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 495, 300, 20).build());
+            ).dimensions(centerX - 150, tutorialY, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("1. Export your path from Google Earth Pro as KML"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 520, 300, 15).build());
+            ).dimensions(centerX - 150, tutorialY + 25, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("2. Place the .kml file in the KML folder shown above"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 538, 300, 15).build());
+            ).dimensions(centerX - 150, tutorialY + 43, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("3. Use /boshys-bt-utils importKML <filename>"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 556, 300, 15).build());
+            ).dimensions(centerX - 150, tutorialY + 61, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("4. DO NOT touch Minecraft until import completes!"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 574, 300, 15).build());
+            ).dimensions(centerX - 150, tutorialY + 79, 300, 15).build());
 
             // Supported formats
+            int formatsY = tutorialY + 109;
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Supported KML Formats:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 604, 300, 20).build());
+            ).dimensions(centerX - 150, formatsY, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Regular paths (LineString, Placemark)"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 629, 300, 15).build());
+            ).dimensions(centerX - 150, formatsY + 25, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• 3D paths with altitude data"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 647, 300, 15).build());
+            ).dimensions(centerX - 150, formatsY + 43, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Multiple paths in one file"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 665, 300, 15).build());
+            ).dimensions(centerX - 150, formatsY + 61, 300, 15).build());
 
             // How it works
+            int howY = formatsY + 91;
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("How It Works:").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 695, 300, 20).build());
+            ).dimensions(centerX - 150, howY, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Reads coordinates from KML <coordinates> tags"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 720, 300, 15).build());
+            ).dimensions(centerX - 150, howY + 25, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Runs /tpll for each point automatically"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 738, 300, 15).build());
+            ).dimensions(centerX - 150, howY + 43, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Places markers at teleport destinations"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 756, 300, 15).build());
+            ).dimensions(centerX - 150, howY + 61, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Auto-connects sequential points with lines"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 774, 300, 15).build());
+            ).dimensions(centerX - 150, howY + 79, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("• Runs post-import commands after each TPLL"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 792, 300, 15).build());
+            ).dimensions(centerX - 150, howY + 97, 300, 15).build());
 
             // Back button
+            int backY = howY + 130;
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal("Back"),
                     button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 825, 200, 20).build());
+            ).dimensions(centerX - 100, backY, 200, 20).build());
         }
 
         @Override
@@ -1099,7 +1202,7 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
-                int contentHeight = 870;
+                int contentHeight = 1100;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();

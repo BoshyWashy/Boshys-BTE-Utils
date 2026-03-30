@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.boshys.bteutils"
-version = "Fabric_1.21.10_2.0-BETA-1"
+version = "Fabric_1.21.10_2.0-BETA-2.2"
 
 java {
     toolchain {
@@ -26,6 +26,7 @@ repositories {
     maven { url = "https://maven.fabricmc.net/" }
     maven { url = "https://maven.terraformersmc.com/releases/" }
     maven { url = "https://maven.shedaniel.me/" }
+    maven { url = "https://maven.smyler.net/snapshots" }
 }
 
 dependencies {

@@ -33,5 +33,9 @@
   "command.boshysbteutils.kml.import.normal": "§aVous pouvez maintenant utiliser Minecraft normalement.",
   "command.boshysbteutils.kml.import.timeout_warning": "§ePoint %d§e expiré (lag détecté), continuation...",
 
-  "text.autoconfig.boshysbteutils.title": "Configuration Boshys BTE Utils"
+  "text.autoconfig.boshysbteutils.title": "Configuration Boshys BTE Utils",
+
+  "text.autoconfig.boshysbteutils.option.kmlPointsIncludeAltitude": "Points KML incluent l'altitude",
+  "text.autoconfig.boshysbteutils.option.kmlPointsIncludeAltitude.@Tooltip": "Si vrai, utilise l'altitude KML pour Y. Si faux, place au bloc solide le plus haut."
+
 }
