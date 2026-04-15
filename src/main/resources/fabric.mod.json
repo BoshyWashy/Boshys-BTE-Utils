@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "boshysbteutils",
-  "version": "1.0.0",
+  "version": "2.0-BETA.3",
   "name": "Boshys BTE Utils",
   "description": "Adds a keybind for TPLL, along with markers to place down and keep track of where you have previously TPLLed to.",
   "authors": ["BoshyWashy"],

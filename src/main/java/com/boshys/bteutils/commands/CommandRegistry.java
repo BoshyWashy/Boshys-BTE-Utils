@@ -4,6 +4,7 @@ import com.boshys.bteutils.BoshysBTEUtils;
 import com.boshys.bteutils.storage.MarkerStorage;
 import com.boshys.bteutils.storage.KmlImportHandler;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -118,6 +119,14 @@ public class CommandRegistry {
                                 return 0;
                             }
 
+                            if (BoshysBTEUtils.markersHidden) {
+                                if (!BoshysBTEUtils.hideWarningShown) {
+                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                    BoshysBTEUtils.hideWarningShown = true;
+                                }
+                                return 0;
+                            }
+
                             ClientPlayerEntity player = context.getSource().getPlayer();
                             double x = player.getX();
                             double y = player.getY();
@@ -141,9 +150,38 @@ public class CommandRegistry {
                             return 1;
                         }))
 
+                // Temp Hide command
+                .then(ClientCommandManager.literal("tempHide")
+                        .then(ClientCommandManager.argument("hide", BoolArgumentType.bool())
+                                .executes(context -> {
+                                    boolean shouldHide = BoolArgumentType.getBool(context, "hide");
+
+                                    if (shouldHide) {
+                                        if (BoshysBTEUtils.markersHidden) {
+                                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_hidden"));
+                                            return 0;
+                                        }
+                                        BoshysBTEUtils.hideAllMarkers();
+                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.hidden"));
+                                    } else {
+                                        if (!BoshysBTEUtils.markersHidden) {
+                                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_shown"));
+                                            return 0;
+                                        }
+                                        BoshysBTEUtils.showAllMarkers();
+                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.shown"));
+                                    }
+                                    return 1;
+                                })))
+
                 // Update marker design
                 .then(ClientCommandManager.literal("updateMarkerDesign")
                         .executes(context -> {
+                            if (BoshysBTEUtils.markersHidden) {
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                return 0;
+                            }
+
                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
                                 context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                 return 0;
@@ -207,6 +245,11 @@ public class CommandRegistry {
                                 .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
                                         .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
                                                 .executes(context -> {
+                                                    if (BoshysBTEUtils.markersHidden) {
+                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                                        return 0;
+                                                    }
+
                                                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
                                                         context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                                         return 0;
@@ -221,6 +264,11 @@ public class CommandRegistry {
                                                     return markerStorage.moveSelectedMarkers(context.getSource(), dx, dy, dz);
                                                 }))))
                         .executes(context -> {
+                            if (BoshysBTEUtils.markersHidden) {
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                return 0;
+                            }
+
                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
                                 context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                 return 0;
@@ -241,6 +289,11 @@ public class CommandRegistry {
                                         .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
                                                 .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
                                                         .executes(context -> {
+                                                            if (BoshysBTEUtils.markersHidden) {
+                                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                                                return 0;
+                                                            }
+
                                                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
                                                                 context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                                                 return 0;
@@ -345,7 +398,62 @@ public class CommandRegistry {
                                     String filename = StringArgumentType.getString(context, "filename");
                                     return kmlImportHandler.importKmlFile(context.getSource(), filename);
                                 })))
-        );
+
+                // Import Multiple KMLs
+                .then(ClientCommandManager.literal("importMultipleKMLs")
+                        .then(ClientCommandManager.argument("file1", StringArgumentType.string())
+                                .suggests(KML_FILE_SUGGESTIONS)
+                                .executes(context -> executeMultipleKmlImport(context, 1))
+                                .then(ClientCommandManager.argument("file2", StringArgumentType.string())
+                                        .suggests(KML_FILE_SUGGESTIONS)
+                                        .executes(context -> executeMultipleKmlImport(context, 2))
+                                        .then(ClientCommandManager.argument("file3", StringArgumentType.string())
+                                                .suggests(KML_FILE_SUGGESTIONS)
+                                                .executes(context -> executeMultipleKmlImport(context, 3))
+                                                .then(ClientCommandManager.argument("file4", StringArgumentType.string())
+                                                        .suggests(KML_FILE_SUGGESTIONS)
+                                                        .executes(context -> executeMultipleKmlImport(context, 4))
+                                                        .then(ClientCommandManager.argument("file5", StringArgumentType.string())
+                                                                .suggests(KML_FILE_SUGGESTIONS)
+                                                                .executes(context -> executeMultipleKmlImport(context, 5))
+                                                                .then(ClientCommandManager.argument("file6", StringArgumentType.string())
+                                                                        .suggests(KML_FILE_SUGGESTIONS)
+                                                                        .executes(context -> executeMultipleKmlImport(context, 6))
+                                                                        .then(ClientCommandManager.argument("file7", StringArgumentType.string())
+                                                                                .suggests(KML_FILE_SUGGESTIONS)
+                                                                                .executes(context -> executeMultipleKmlImport(context, 7))
+                                                                                .then(ClientCommandManager.argument("file8", StringArgumentType.string())
+                                                                                        .suggests(KML_FILE_SUGGESTIONS)
+                                                                                        .executes(context -> executeMultipleKmlImport(context, 8))
+                                                                                        .then(ClientCommandManager.argument("file9", StringArgumentType.string())
+                                                                                                .suggests(KML_FILE_SUGGESTIONS)
+                                                                                                .executes(context -> executeMultipleKmlImport(context, 9))
+                                                                                                .then(ClientCommandManager.argument("file10", StringArgumentType.string())
+                                                                                                        .suggests(KML_FILE_SUGGESTIONS)
+                                                                                                        .executes(context -> executeMultipleKmlImport(context, 10))))))))))))
+                ));
+    }
+
+    private int executeMultipleKmlImport(com.mojang.brigadier.context.CommandContext<FabricClientCommandSource> context, int argCount) {
+        List<String> files = new ArrayList<>();
+
+        try { files.add(StringArgumentType.getString(context, "file1")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file2")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file3")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file4")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file5")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file6")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file7")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file8")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file9")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file10")); } catch (Exception e) {}
+
+        if (files.isEmpty()) {
+            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
+            return 0;
+        }
+
+        return kmlImportHandler.importMultipleKmlFiles(context.getSource(), files);
     }
 
     private void sendFirstMarkerMessage(FabricClientCommandSource source) {

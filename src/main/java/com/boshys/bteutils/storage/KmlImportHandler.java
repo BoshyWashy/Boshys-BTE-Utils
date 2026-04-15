@@ -3,6 +3,7 @@ package com.boshys.bteutils.storage;
 import com.boshys.bteutils.BoshysBTEUtils;
 import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
 import com.boshys.bteutils.data.MarkerData;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
@@ -53,12 +54,23 @@ public class KmlImportHandler {
     // Cooldown counter
     private int cooldownTicks = 0;
 
+    // Multiple KML import queue
+    private List<String> kmlFileQueue = new ArrayList<>();
+    private int currentKmlFileIndex = 0;
+    private boolean isProcessingQueue = false;
+    private int queueDelayTicks = 0;
+    private boolean waitingBetweenFiles = false;
+
     public KmlImportHandler(BoshysBTEUtils mod) {
         this.mod = mod;
     }
 
     public boolean isImporting() {
         return isKmlImporting || kmlImportWaitingToStart;
+    }
+
+    public boolean isProcessingQueue() {
+        return isProcessingQueue;
     }
 
     public void tick(MinecraftClient client) {
@@ -92,6 +104,19 @@ public class KmlImportHandler {
         }
 
         if (!isKmlImporting || pendingKmlPoints.isEmpty()) {
+            return;
+        }
+
+        // Handle queue delay between files
+        if (waitingBetweenFiles) {
+            if (queueDelayTicks > 0) {
+                queueDelayTicks--;
+                return;
+            }
+
+            // Delay finished, start next file
+            waitingBetweenFiles = false;
+            startNextKmlInQueue(client);
             return;
         }
 
@@ -359,6 +384,10 @@ public class KmlImportHandler {
         }
     }
 
+    private void placeMarkerAndContinue(MinecraftClient client) {
+        placeMarkerAndContinue(client, false);
+    }
+
     private void placeMarkerAndContinue(MinecraftClient client, boolean forced) {
         if (client.player == null) {
             kmlCurrentPointIndex++;
@@ -491,7 +520,7 @@ public class KmlImportHandler {
         }
     }
 
-    public int importKmlFile(net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source, String filename) {
+    public int importKmlFile(FabricClientCommandSource source, String filename) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
             source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
             return 0;
@@ -554,6 +583,8 @@ public class KmlImportHandler {
         cooldownTicks = 0;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
+        isProcessingQueue = false;
+        kmlFileQueue.clear();
 
         kmlImportWaitingToStart = true;
         kmlImportStartDelayTicks = BoshysBTEUtils.getConfig().kmlImportStartDelaySeconds * 20;
@@ -581,6 +612,299 @@ public class KmlImportHandler {
         }
 
         return 1;
+    }
+
+    public int importMultipleKmlFiles(FabricClientCommandSource source, List<String> filenames) {
+        if (!BoshysBTEUtils.getConfig().enableMarkers) {
+            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+            return 0;
+        }
+
+        if (isKmlImporting || kmlImportWaitingToStart || isProcessingQueue) {
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.in_progress"));
+            return 0;
+        }
+
+        if (filenames.isEmpty()) {
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
+            return 0;
+        }
+
+        // Validate all files exist first
+        Path kmlPath = MarkerStorage.getKmlSavePath();
+        List<String> validFiles = new ArrayList<>();
+
+        for (String filename : filenames) {
+            String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
+            if (cleanFilename.isEmpty()) continue;
+
+            File kmlFile = kmlPath.resolve(cleanFilename + ".kml").toFile();
+            if (!kmlFile.exists()) {
+                kmlFile = kmlPath.resolve(cleanFilename + ".KML").toFile();
+            }
+
+            if (kmlFile.exists()) {
+                validFiles.add(cleanFilename);
+            }
+        }
+
+        if (validFiles.isEmpty()) {
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_valid_files"));
+            return 0;
+        }
+
+        // Set up queue
+        kmlFileQueue = new ArrayList<>(validFiles);
+        currentKmlFileIndex = 0;
+        isProcessingQueue = true;
+        waitingBetweenFiles = false;
+
+        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.started", validFiles.size()).formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
+        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.warning").formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
+
+        // Start first file
+        startKmlFileImport(source, kmlFileQueue.get(0));
+
+        return 1;
+    }
+
+    private void startKmlFileImport(FabricClientCommandSource source, String filename) {
+        Path kmlPath = MarkerStorage.getKmlSavePath();
+        File kmlFile = kmlPath.resolve(filename + ".kml").toFile();
+
+        if (!kmlFile.exists()) {
+            kmlFile = kmlPath.resolve(filename + ".KML").toFile();
+        }
+
+        List<MarkerData.KmlPoint> points = parseKmlFile(kmlFile);
+
+        if (points.isEmpty()) {
+            // Skip this file and move to next
+            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.skipping_empty", filename));
+            advanceQueueOrFinish(source.getClient());
+            return;
+        }
+
+        kmlPostCommandsList.clear();
+        if (BoshysBTEUtils.getConfig().kmlPostImportCommands != null &&
+                !BoshysBTEUtils.getConfig().kmlPostImportCommands.isEmpty()) {
+            String[] commands = BoshysBTEUtils.getConfig().kmlPostImportCommands.split(";");
+            for (String cmd : commands) {
+                cmd = cmd.trim();
+                if (!cmd.isEmpty()) {
+                    kmlPostCommandsList.add(cmd);
+                }
+            }
+        }
+
+        pendingKmlPoints = new ArrayList<>(points);
+        currentKmlFileName = filename;
+        kmlCurrentPointIndex = 0;
+        kmlPostCommandIndex = 0;
+        kmlWaitingForPostCommand = false;
+        waitingForWorldEditCommand = false;
+        worldEditLinesActive = false;
+        worldEditSetupComplete = false;
+        waitingForTeleport = false;
+        inWorldEditSetupPhase = false;
+        inSpectatorSetupPhase = false;
+        cooldownTicks = 0;
+        positionBeforeTpll = null;
+        lastCheckedPosition = null;
+
+        kmlImportWaitingToStart = true;
+        kmlImportStartDelayTicks = BoshysBTEUtils.getConfig().kmlImportStartDelaySeconds * 20;
+
+        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.processing", currentKmlFileIndex + 1, kmlFileQueue.size(), filename));
+    }
+
+    private void finishKmlImport(MinecraftClient client) {
+        int importedCount = kmlCurrentPointIndex;
+
+        if (isProcessingQueue) {
+            // We're in queue mode, prepare for next file
+            if (client.player != null) {
+                client.player.sendMessage(
+                        Text.translatable("command.boshysbteutils.kml.queue.file_complete", currentKmlFileName, importedCount).formatted(net.minecraft.util.Formatting.GREEN),
+                        false
+                );
+            }
+
+            advanceQueueOrFinish(client);
+            return;
+        }
+
+        // Single file import - finish completely
+        isKmlImporting = false;
+
+        if (client.player != null && client.inGameHud != null) {
+            client.inGameHud.setTitle(Text.literal(""));
+            client.inGameHud.setSubtitle(Text.literal(""));
+        }
+
+        if (client.player != null) {
+            // Send advancement-like toast message (simulated via chat for now, but distinct)
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.import.complete").formatted(net.minecraft.util.Formatting.GREEN, net.minecraft.util.Formatting.BOLD),
+                    false
+            );
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.import.success", importedCount, currentKmlFileName).formatted(net.minecraft.util.Formatting.GREEN),
+                    false
+            );
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.import.normal").formatted(net.minecraft.util.Formatting.GREEN),
+                    true // Action bar
+            );
+        }
+
+        pendingKmlPoints.clear();
+        kmlCurrentPointIndex = 0;
+        kmlPostCommandIndex = 0;
+        currentKmlFileName = "";
+        kmlPostCommandsList.clear();
+        kmlWaitingForPostCommand = false;
+        waitingForWorldEditCommand = false;
+        worldEditLinesActive = false;
+        worldEditSetupComplete = false;
+        waitingForTeleport = false;
+        inWorldEditSetupPhase = false;
+        inSpectatorSetupPhase = false;
+        cooldownTicks = 0;
+        positionBeforeTpll = null;
+        lastCheckedPosition = null;
+        worldEditCommandQueue.clear();
+        setupCommands.clear();
+    }
+
+    private void advanceQueueOrFinish(MinecraftClient client) {
+        currentKmlFileIndex++;
+
+        if (currentKmlFileIndex >= kmlFileQueue.size()) {
+            // All files done
+            isProcessingQueue = false;
+            isKmlImporting = false;
+            kmlFileQueue.clear();
+
+            if (client.player != null && client.inGameHud != null) {
+                client.inGameHud.setTitle(Text.literal(""));
+                client.inGameHud.setSubtitle(Text.literal(""));
+            }
+
+            if (client.player != null) {
+                client.player.sendMessage(
+                        Text.translatable("command.boshysbteutils.kml.queue.complete").formatted(net.minecraft.util.Formatting.GREEN, net.minecraft.util.Formatting.BOLD),
+                        false
+                );
+                client.player.sendMessage(
+                        Text.translatable("command.boshysbteutils.kml.import.normal").formatted(net.minecraft.util.Formatting.GREEN),
+                        true
+                );
+            }
+
+            pendingKmlPoints.clear();
+            kmlCurrentPointIndex = 0;
+            kmlPostCommandIndex = 0;
+            currentKmlFileName = "";
+            kmlPostCommandsList.clear();
+            kmlWaitingForPostCommand = false;
+            waitingForWorldEditCommand = false;
+            worldEditLinesActive = false;
+            worldEditSetupComplete = false;
+            waitingForTeleport = false;
+            inWorldEditSetupPhase = false;
+            inSpectatorSetupPhase = false;
+            cooldownTicks = 0;
+            positionBeforeTpll = null;
+            lastCheckedPosition = null;
+            worldEditCommandQueue.clear();
+            setupCommands.clear();
+        } else {
+            // Prepare for next file
+            waitingBetweenFiles = true;
+            queueDelayTicks = 20; // 1 second delay between files
+
+            // Deselect all markers
+            BoshysBTEUtils.selectedMarkers.clear();
+
+            // Run //sel if WorldEdit lines are enabled
+            if (BoshysBTEUtils.getConfig().enableWorldEditLines && client.player != null) {
+                client.player.networkHandler.sendChatCommand("sel");
+            }
+        }
+    }
+
+    private void startNextKmlInQueue(MinecraftClient client) {
+        if (!isProcessingQueue || currentKmlFileIndex >= kmlFileQueue.size()) {
+            return;
+        }
+
+        String nextFile = kmlFileQueue.get(currentKmlFileIndex);
+
+        // Create a fake source for the next file (we'll use the client directly where needed)
+        // Actually, we need to handle this differently since we don't have the source anymore
+        // We'll store the feedback messages and display them directly
+
+        Path kmlPath = MarkerStorage.getKmlSavePath();
+        File kmlFile = kmlPath.resolve(nextFile + ".kml").toFile();
+
+        if (!kmlFile.exists()) {
+            kmlFile = kmlPath.resolve(nextFile + ".KML").toFile();
+        }
+
+        List<MarkerData.KmlPoint> points = parseKmlFile(kmlFile);
+
+        if (points.isEmpty()) {
+            if (client.player != null) {
+                client.player.sendMessage(
+                        Text.translatable("command.boshysbteutils.kml.queue.skipping_empty", nextFile).formatted(net.minecraft.util.Formatting.YELLOW),
+                        false
+                );
+            }
+            advanceQueueOrFinish(client);
+            return;
+        }
+
+        kmlPostCommandsList.clear();
+        if (BoshysBTEUtils.getConfig().kmlPostImportCommands != null &&
+                !BoshysBTEUtils.getConfig().kmlPostImportCommands.isEmpty()) {
+            String[] commands = BoshysBTEUtils.getConfig().kmlPostImportCommands.split(";");
+            for (String cmd : commands) {
+                cmd = cmd.trim();
+                if (!cmd.isEmpty()) {
+                    kmlPostCommandsList.add(cmd);
+                }
+            }
+        }
+
+        pendingKmlPoints = new ArrayList<>(points);
+        currentKmlFileName = nextFile;
+        kmlCurrentPointIndex = 0;
+        kmlPostCommandIndex = 0;
+        kmlWaitingForPostCommand = false;
+        waitingForWorldEditCommand = false;
+        worldEditLinesActive = false;
+        worldEditSetupComplete = false;
+        waitingForTeleport = false;
+        inWorldEditSetupPhase = false;
+        inSpectatorSetupPhase = false;
+        cooldownTicks = 0;
+        positionBeforeTpll = null;
+        lastCheckedPosition = null;
+
+        // Don't use start delay between queued files
+        kmlImportWaitingToStart = false;
+        isKmlImporting = true;
+
+        if (client.player != null) {
+            client.player.sendMessage(
+                    Text.translatable("command.boshysbteutils.kml.queue.processing", currentKmlFileIndex + 1, kmlFileQueue.size(), nextFile),
+                    false
+            );
+        }
+
+        // Always start with spectator setup, regardless of WorldEdit lines setting
+        startSpectatorSetup(client);
     }
 
     private List<MarkerData.KmlPoint> parseKmlFile(File kmlFile) {
@@ -657,49 +981,5 @@ public class KmlImportHandler {
         }
 
         return points;
-    }
-
-    private void finishKmlImport(MinecraftClient client) {
-        isKmlImporting = false;
-        int importedCount = kmlCurrentPointIndex;
-
-        if (client.player != null && client.inGameHud != null) {
-            client.inGameHud.setTitle(Text.literal(""));
-            client.inGameHud.setSubtitle(Text.literal(""));
-        }
-
-        if (client.player != null) {
-            // Send advancement-like toast message (simulated via chat for now, but distinct)
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.import.complete").formatted(net.minecraft.util.Formatting.GREEN, net.minecraft.util.Formatting.BOLD),
-                    false
-            );
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.import.success", importedCount, currentKmlFileName).formatted(net.minecraft.util.Formatting.GREEN),
-                    false
-            );
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.import.normal").formatted(net.minecraft.util.Formatting.GREEN),
-                    true // Action bar
-            );
-        }
-
-        pendingKmlPoints.clear();
-        kmlCurrentPointIndex = 0;
-        kmlPostCommandIndex = 0;
-        currentKmlFileName = "";
-        kmlPostCommandsList.clear();
-        kmlWaitingForPostCommand = false;
-        waitingForWorldEditCommand = false;
-        worldEditLinesActive = false;
-        worldEditSetupComplete = false;
-        waitingForTeleport = false;
-        inWorldEditSetupPhase = false;
-        inSpectatorSetupPhase = false;
-        cooldownTicks = 0;
-        positionBeforeTpll = null;
-        lastCheckedPosition = null;
-        worldEditCommandQueue.clear();
-        setupCommands.clear();
     }
 }

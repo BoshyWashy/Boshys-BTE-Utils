@@ -48,6 +48,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
     public static final Set<MarkerData.TeleportMarker> selectedMarkers = new HashSet<>();
     public static MarkerData.TeleportMarker lastAddedMarker = null;
 
+    // Hidden markers storage
+    public static final List<MarkerData.TeleportMarker> hiddenMarkers = new ArrayList<>();
+    public static final List<MarkerData.MarkerConnection> hiddenConnections = new ArrayList<>();
+    public static final Set<MarkerData.TeleportMarker> hiddenSelectedMarkers = new HashSet<>();
+    public static MarkerData.TeleportMarker hiddenLastAddedMarker = null;
+    public static boolean markersHidden = false;
+    public static boolean hideWarningShown = false;
+
     // File tracking
     public static final Map<MarkerData.TeleportMarker, String> markerOrigins = new HashMap<>();
     public static final Map<MarkerData.TeleportMarker, Vec3d> markerOriginalPositions = new HashMap<>();
@@ -185,6 +193,13 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 }
 
                 if (config.enableMarkers && config.enableAutoTpllMarkers) {
+                    if (markersHidden) {
+                        if (!hideWarningShown) {
+                            notifyError(client, "command.boshysbteutils.error.markers_hidden");
+                            hideWarningShown = true;
+                        }
+                        continue;
+                    }
                     posXBeforeTpll = client.player.getX();
                     posYBeforeTpll = client.player.getY();
                     posZBeforeTpll = client.player.getZ();
@@ -204,6 +219,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
         while (addMarkerKeybind.wasPressed()) {
             if (!config.enableMarkers) {
                 notifyError(client, "command.boshysbteutils.error.markers_disabled");
+                continue;
+            }
+
+            if (markersHidden) {
+                if (!hideWarningShown) {
+                    notifyError(client, "command.boshysbteutils.error.markers_hidden");
+                    hideWarningShown = true;
+                }
                 continue;
             }
 
@@ -239,6 +262,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
 
         while (deleteMarkerKeybind.wasPressed()) {
+            if (markersHidden) {
+                if (!hideWarningShown) {
+                    notifyError(client, "command.boshysbteutils.error.markers_hidden");
+                    hideWarningShown = true;
+                }
+                continue;
+            }
+
             if (!selectedMarkers.isEmpty()) {
                 int count = selectedMarkers.size();
                 for (MarkerData.TeleportMarker marker : new ArrayList<>(selectedMarkers)) {
@@ -297,6 +328,17 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
         if (distanceMoved > 0.1) {
             if (waitingForTeleport || commandCooldownTicks > 0) {
+                if (markersHidden) {
+                    if (!hideWarningShown) {
+                        notifyError(client, "command.boshysbteutils.error.markers_hidden");
+                        hideWarningShown = true;
+                    }
+                    waitingForTeleport = false;
+                    commandCooldownTicks = 0;
+                    lastCommandSent = "";
+                    return;
+                }
+
                 MarkerData.TeleportMarker newMarker = MarkerData.addMarker(new Vec3d(currentX, currentY, currentZ));
 
                 if (config.enableAutoLineConnection) {
@@ -315,6 +357,8 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     private void handleMarkerSelection(MinecraftClient client) {
         if (client.player == null || client.world == null) return;
+
+        if (markersHidden) return; // Don't allow selection while hidden
 
         ItemStack mainHandStack = client.player.getStackInHand(Hand.MAIN_HAND);
         if (!mainHandStack.isEmpty()) {
@@ -497,6 +541,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
         );
 
         if (distanceMoved > 0.1) {
+            if (markersHidden) {
+                if (!hideWarningShown) {
+                    notifyError(client, "command.boshysbteutils.error.markers_hidden");
+                    hideWarningShown = true;
+                }
+                return;
+            }
+
             MarkerData.TeleportMarker newMarker = MarkerData.addMarker(new Vec3d(newX, newY, newZ));
 
             if (config.enableAutoLineConnection) {
@@ -506,6 +558,51 @@ public class BoshysBTEUtils implements ClientModInitializer {
             // Auto TPLL markers from mixin - no message (original behavior)
             // Only manual addMarker shows messages
         }
+    }
+
+    // Temp hide/show methods
+    public static void hideAllMarkers() {
+        if (markersHidden) return;
+
+        // Store current state
+        hiddenMarkers.clear();
+        hiddenMarkers.addAll(markers);
+        hiddenConnections.clear();
+        hiddenConnections.addAll(markerConnections);
+        hiddenSelectedMarkers.clear();
+        hiddenSelectedMarkers.addAll(selectedMarkers);
+        hiddenLastAddedMarker = lastAddedMarker;
+
+        // Clear current state
+        markers.clear();
+        markerConnections.clear();
+        selectedMarkers.clear();
+        lastAddedMarker = null;
+
+        markersHidden = true;
+        hideWarningShown = false;
+    }
+
+    public static void showAllMarkers() {
+        if (!markersHidden) return;
+
+        // Restore state
+        markers.clear();
+        markers.addAll(hiddenMarkers);
+        markerConnections.clear();
+        markerConnections.addAll(hiddenConnections);
+        selectedMarkers.clear();
+        selectedMarkers.addAll(hiddenSelectedMarkers);
+        lastAddedMarker = hiddenLastAddedMarker;
+
+        // Clear hidden storage
+        hiddenMarkers.clear();
+        hiddenConnections.clear();
+        hiddenSelectedMarkers.clear();
+        hiddenLastAddedMarker = null;
+
+        markersHidden = false;
+        hideWarningShown = false;
     }
 
     // Getters
