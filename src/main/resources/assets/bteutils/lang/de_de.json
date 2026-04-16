@@ -123,7 +123,7 @@
   "command.boshysbteutils.kml.queue.no_files": "§cKeine Dateien für Warteschlange angegeben!",
   "command.boshysbteutils.kml.queue.no_valid_files": "§cKeine gültigen KML-Dateien in der angegebenen Liste gefunden!",
   "command.boshysbteutils.kml.queue.started": "§eStarte KML-Warteschlangen-Import von %d Dateien...",
-  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d] Importiere: %s",
+  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d§e] Importiere: %s",
   "command.boshysbteutils.kml.queue.file_complete": "§aImport von %s abgeschlossen (%d Punkte)",
   "command.boshysbteutils.kml.queue.skipping_empty": "§eÜberspringe %s (keine gültigen Punkte gefunden)",
   "command.boshysbteutils.kml.queue.complete": "=== KML WARTESCHLANGEN-IMPORT ABGESCHLOSSEN ===",

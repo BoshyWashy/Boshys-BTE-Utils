@@ -179,10 +179,10 @@ public class KmlImportHandler {
                         // Still moving, reset stability counter
                         stablePositionTicks = 0;
                     }
+                } else {
+                    // Haven't moved yet, reset stability
+                    stablePositionTicks = 0;
                 }
-            } else {
-                // Haven't moved yet, reset stability
-                stablePositionTicks = 0;
             }
 
             lastCheckedPosition = currentPos;
@@ -826,6 +826,9 @@ public class KmlImportHandler {
 
             // Deselect all markers
             BoshysBTEUtils.selectedMarkers.clear();
+
+            // CRITICAL FIX: Clear lastAddedMarker to prevent auto-connection between files
+            BoshysBTEUtils.lastAddedMarker = null;
 
             // Run //sel if WorldEdit lines are enabled
             if (BoshysBTEUtils.getConfig().enableWorldEditLines && client.player != null) {

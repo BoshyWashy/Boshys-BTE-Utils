@@ -123,7 +123,7 @@
   "command.boshysbteutils.kml.queue.no_files": "§c대기열에 파일이 지정되지 않았습니다!",
   "command.boshysbteutils.kml.queue.no_valid_files": "§c지정된 목록에서 유효한 KML 파일을 찾을 수 없습니다!",
   "command.boshysbteutils.kml.queue.started": "§e%d개의 파일 KML 대기열 가져오기 시작...",
-  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d] 가져오는 중: %s",
+  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d§e] 가져오는 중: %s",
   "command.boshysbteutils.kml.queue.file_complete": "§a%s 가져오기 완료 (%d개 지점)",
   "command.boshysbteutils.kml.queue.skipping_empty": "§e%s 건너뛰는 중 (유효한 지점 없음)",
   "command.boshysbteutils.kml.queue.complete": "=== KML 대기열 가져오기 완료 ===",

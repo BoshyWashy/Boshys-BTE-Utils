@@ -123,7 +123,7 @@
   "command.boshysbteutils.kml.queue.no_files": "§cキューにファイルが指定されていません！",
   "command.boshysbteutils.kml.queue.no_valid_files": "§c指定されたリストに有効なKMLファイルが見つかりません！",
   "command.boshysbteutils.kml.queue.started": "§e%d個のファイルのKMLキューインポートを開始...",
-  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d] インポート中: %s",
+  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d§e] インポート中: %s",
   "command.boshysbteutils.kml.queue.file_complete": "§a%s のインポート完了 (%d個のポイント)",
   "command.boshysbteutils.kml.queue.skipping_empty": "§e%s をスキップ (有効なポイントなし)",
   "command.boshysbteutils.kml.queue.complete": "=== KMLキューインポート完了 ===",

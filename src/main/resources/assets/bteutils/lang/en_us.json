@@ -123,7 +123,7 @@
   "command.boshysbteutils.kml.queue.no_files": "§cNo files specified for queue!",
   "command.boshysbteutils.kml.queue.no_valid_files": "§cNo valid KML files found in the specified list!",
   "command.boshysbteutils.kml.queue.started": "§eStarting KML queue import of %d files...",
-  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d] Importing: %s",
+  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d§e] Importing: %s",
   "command.boshysbteutils.kml.queue.file_complete": "§aCompleted importing %s (%d points)",
   "command.boshysbteutils.kml.queue.skipping_empty": "§eSkipping %s (no valid points found)",
   "command.boshysbteutils.kml.queue.complete": "=== KML QUEUE IMPORT COMPLETE ===",

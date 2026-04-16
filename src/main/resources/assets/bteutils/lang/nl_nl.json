@@ -123,7 +123,7 @@
   "command.boshysbteutils.kml.queue.no_files": "§cGeen bestanden opgegeven voor wachtrij!",
   "command.boshysbteutils.kml.queue.no_valid_files": "§cGeen geldige KML bestanden gevonden in de opgegeven lijst!",
   "command.boshysbteutils.kml.queue.started": "§eStarten KML wachtrij import van %d bestanden...",
-  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d] Importeren: %s",
+  "command.boshysbteutils.kml.queue.processing": "§e[%d/%d§e] Importeren: %s",
   "command.boshysbteutils.kml.queue.file_complete": "§aKlaar met importeren %s (%d punten)",
   "command.boshysbteutils.kml.queue.skipping_empty": "§eOverslaan %s (geen geldige punten gevonden)",
   "command.boshysbteutils.kml.queue.complete": "=== KML WACHTRIJ IMPORT VOLTOOID ===",
