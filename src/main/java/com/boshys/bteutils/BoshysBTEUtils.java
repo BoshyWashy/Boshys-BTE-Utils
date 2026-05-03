@@ -18,13 +18,9 @@ import me.shedaniel.autoconfig.serializer.GsonConfigSerializer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
@@ -162,7 +158,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
     }
 
     private void handleKeybinds(MinecraftClient client) {
-        while (KeybindRegistry.get(Keybind.TPLL).wasPressed()) {
+        while (KeybindRegistry.wasPressed(Keybind.TPLL)) {
             try {
                 String clip = getClipboard(client);
                 if (clip == null || clip.isEmpty()) {
@@ -194,7 +190,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             }
         }
 
-        while (KeybindRegistry.get(Keybind.ADD_MARKER).wasPressed()) {
+        while (KeybindRegistry.wasPressed(Keybind.ADD_MARKER)) {
             if (!config.enableMarkers) {
                 notifyError(client, "command.boshysbteutils.error.markers_disabled");
                 continue;
@@ -226,7 +222,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             }
         }
 
-        while (KeybindRegistry.get(Keybind.CLEAR_MARKERS).wasPressed()) {
+        while (KeybindRegistry.wasPressed(Keybind.CLEAR_MARKERS)) {
             int cacheCount = markerStorage.getCacheMarkerCount();
             if (config.enableClearConfirmation && cacheCount > config.clearConfirmLimit) {
                 markerStorage.setPendingClear(cacheCount, false);
@@ -237,7 +233,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             notifyActionBar(client, "command.boshysbteutils.marker.cleared", count);
         }
 
-        while (KeybindRegistry.get(Keybind.DELETE_MARKER).wasPressed()) {
+        while (KeybindRegistry.wasPressed(Keybind.DELETE_MARKER)) {
             if (markersHidden) {
                 if (!hideWarningShown) {
                     notifyError(client, "command.boshysbteutils.error.markers_hidden");
@@ -258,7 +254,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             }
         }
 
-        while (KeybindRegistry.get(Keybind.TOGGLE_OVERLAY_MARKERS).wasPressed()) {
+        while (KeybindRegistry.wasPressed(Keybind.TOGGLE_OVERLAY_MARKERS)) {
             if (getOverlayStorage().getLoadedOverlays().isEmpty()) {
                 notifyActionBar(client, "command.boshysbteutils.overlay.no_loaded");
                 continue;
@@ -350,7 +346,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         if (!mainHandStack.isEmpty()) return false;
 
         if (selectionCooldown > 0) return false;
-        if (!KeybindRegistry.get(Keybind.SELECT_MARKER).isPressed()) return false;
+        if (!KeybindRegistry.isPressed(Keybind.SELECT_MARKER)) return false;
 
         Vec3d eyePos = client.player.getEyePos();
         Vec3d lookVec = client.player.getRotationVector();
@@ -483,7 +479,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
 
         if (selectionCooldown > 0) return;
-        if (!KeybindRegistry.get(Keybind.SELECT_MARKER).isPressed()) return;
+        if (!KeybindRegistry.isPressed(Keybind.SELECT_MARKER)) return;
 
         selectionCooldown = SELECTION_COOLDOWN_TICKS;
 

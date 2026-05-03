@@ -30,4 +30,12 @@ public class KeybindRegistry {
     public static KeyBinding get(Keybind keybind) {
         return KEYBINDS.get(keybind);
     }
+
+    public static boolean wasPressed(Keybind keybind) {
+        return get(keybind).wasPressed();
+    }
+
+    public static boolean isPressed(Keybind keybind) {
+        return get(keybind).isPressed();
+    }
 }
