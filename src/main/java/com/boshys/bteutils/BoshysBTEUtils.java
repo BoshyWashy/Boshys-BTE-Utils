@@ -3,6 +3,8 @@ package com.boshys.bteutils;
 import com.boshys.bteutils.commands.CommandRegistry;
 import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
 import com.boshys.bteutils.data.MarkerData;
+import com.boshys.bteutils.keybind.Keybind;
+import com.boshys.bteutils.keybind.KeybindRegistry;
 import com.boshys.bteutils.overlay.OverlayData;
 import com.boshys.bteutils.overlay.OverlayRenderer;
 import com.boshys.bteutils.overlay.OverlayStorage;
@@ -10,6 +12,7 @@ import com.boshys.bteutils.overlay.OverlayTextureManager;
 import com.boshys.bteutils.storage.KmlImportHandler;
 import com.boshys.bteutils.storage.MarkerStorage;
 import com.boshys.bteutils.rendering.CustomParticleRenderer;
+import lombok.Getter;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.serializer.GsonConfigSerializer;
 import net.fabricmc.api.ClientModInitializer;
@@ -19,7 +22,6 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.Identifier;
@@ -35,17 +37,8 @@ import java.util.*;
 
 public class BoshysBTEUtils implements ClientModInitializer {
 
-    public static BoshysBTEUtils INSTANCE;
-
-    // Keybindings
-    public static KeyBinding tpllKeybind;
-    public static KeyBinding addMarkerKeybind;
-    public static KeyBinding clearMarkersKeybind;
-    public static KeyBinding selectMarkerKeybind;
-    public static KeyBinding deleteMarkerKeybind;
-    public static KeyBinding toggleOverlayMarkersKeybind;
-
-    public static final KeyBinding.Category BTE_UTILS_CATEGORY = new KeyBinding.Category(Identifier.of("boshysbteutils", "bteutils"));
+    @Getter
+    private static BoshysBTEUtils instance = null;
 
     // Marker data
     public static final List<MarkerData.TeleportMarker> markers = new ArrayList<>();
@@ -100,7 +93,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        INSTANCE = this;
+        instance = this;
 
         AutoConfig.register(BoshysBTEUtilsConfig.class, GsonConfigSerializer::new);
         config = AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).getConfig();
@@ -113,7 +106,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         overlayTextureManager = new OverlayTextureManager();
         overlayRenderer = new OverlayRenderer(overlayStorage, overlayTextureManager);
 
-        registerKeybindings();
+        KeybindRegistry.registerAll();
         registerEvents();
         registerCommands();
 
@@ -124,50 +117,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
             overlayRenderer.render(context);
         });
-    }
-
-    private void registerKeybindings() {
-        tpllKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.boshysbteutils.tpll",
-                InputUtil.Type.KEYSYM,
-                InputUtil.UNKNOWN_KEY.getCode(),
-                BTE_UTILS_CATEGORY
-        ));
-
-        addMarkerKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.boshysbteutils.addmarker",
-                InputUtil.Type.KEYSYM,
-                InputUtil.UNKNOWN_KEY.getCode(),
-                BTE_UTILS_CATEGORY
-        ));
-
-        clearMarkersKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.boshysbteutils.clearmarkers",
-                InputUtil.Type.KEYSYM,
-                InputUtil.UNKNOWN_KEY.getCode(),
-                BTE_UTILS_CATEGORY
-        ));
-
-        selectMarkerKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.boshysbteutils.selectmarker",
-                InputUtil.Type.MOUSE,
-                InputUtil.GLFW_MOUSE_BUTTON_RIGHT,
-                BTE_UTILS_CATEGORY
-        ));
-
-        deleteMarkerKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.boshysbteutils.deletemarker",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_DELETE,
-                BTE_UTILS_CATEGORY
-        ));
-
-        toggleOverlayMarkersKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.boshysbteutils.toggleoverlaymarkers",
-                InputUtil.Type.KEYSYM,
-                InputUtil.UNKNOWN_KEY.getCode(),
-                BTE_UTILS_CATEGORY
-        ));
     }
 
     private void registerEvents() {
@@ -213,7 +162,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
     }
 
     private void handleKeybinds(MinecraftClient client) {
-        while (tpllKeybind.wasPressed()) {
+        while (KeybindRegistry.get(Keybind.TPLL).wasPressed()) {
             try {
                 String clip = getClipboard(client);
                 if (clip == null || clip.isEmpty()) {
@@ -245,7 +194,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             }
         }
 
-        while (addMarkerKeybind.wasPressed()) {
+        while (KeybindRegistry.get(Keybind.ADD_MARKER).wasPressed()) {
             if (!config.enableMarkers) {
                 notifyError(client, "command.boshysbteutils.error.markers_disabled");
                 continue;
@@ -277,7 +226,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             }
         }
 
-        while (clearMarkersKeybind.wasPressed()) {
+        while (KeybindRegistry.get(Keybind.CLEAR_MARKERS).wasPressed()) {
             int cacheCount = markerStorage.getCacheMarkerCount();
             if (config.enableClearConfirmation && cacheCount > config.clearConfirmLimit) {
                 markerStorage.setPendingClear(cacheCount, false);
@@ -288,7 +237,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             notifyActionBar(client, "command.boshysbteutils.marker.cleared", count);
         }
 
-        while (deleteMarkerKeybind.wasPressed()) {
+        while (KeybindRegistry.get(Keybind.DELETE_MARKER).wasPressed()) {
             if (markersHidden) {
                 if (!hideWarningShown) {
                     notifyError(client, "command.boshysbteutils.error.markers_hidden");
@@ -309,7 +258,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             }
         }
 
-        while (toggleOverlayMarkersKeybind.wasPressed()) {
+        while (KeybindRegistry.get(Keybind.TOGGLE_OVERLAY_MARKERS).wasPressed()) {
             if (getOverlayStorage().getLoadedOverlays().isEmpty()) {
                 notifyActionBar(client, "command.boshysbteutils.overlay.no_loaded");
                 continue;
@@ -401,7 +350,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         if (!mainHandStack.isEmpty()) return false;
 
         if (selectionCooldown > 0) return false;
-        if (!selectMarkerKeybind.isPressed()) return false;
+        if (!KeybindRegistry.get(Keybind.SELECT_MARKER).isPressed()) return false;
 
         Vec3d eyePos = client.player.getEyePos();
         Vec3d lookVec = client.player.getRotationVector();
@@ -534,7 +483,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
 
         if (selectionCooldown > 0) return;
-        if (!selectMarkerKeybind.isPressed()) return;
+        if (!KeybindRegistry.get(Keybind.SELECT_MARKER).isPressed()) return;
 
         selectionCooldown = SELECTION_COOLDOWN_TICKS;
 
@@ -762,8 +711,8 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     public static void setConfig(BoshysBTEUtilsConfig newConfig) {
         config = newConfig;
-        if (INSTANCE != null && INSTANCE.markerStorage != null) {
-            INSTANCE.markerStorage.updateMarkersSavePath();
+        if (getInstance() != null && getInstance().markerStorage != null) {
+            getInstance().markerStorage.updateMarkersSavePath();
         }
         AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
     }

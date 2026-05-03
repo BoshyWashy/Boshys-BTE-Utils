@@ -20,8 +20,8 @@ public class ClientPlayNetworkHandlerMixin {
     private void onSendPacket(net.minecraft.network.packet.Packet<?> packet, CallbackInfo ci) {
         if (packet instanceof CommandExecutionC2SPacket commandPacket) {
             String command = commandPacket.command();
-            if (BoshysBTEUtils.INSTANCE != null) {
-                BoshysBTEUtils.INSTANCE.onCommandSent(command);
+            if (BoshysBTEUtils.getInstance() != null) {
+                BoshysBTEUtils.getInstance().onCommandSent(command);
             }
         }
     }
@@ -29,9 +29,9 @@ public class ClientPlayNetworkHandlerMixin {
     @Inject(method = "onPlayerPositionLook", at = @At("TAIL"))
     private void onPlayerPositionLook(PlayerPositionLookS2CPacket packet, CallbackInfo ci) {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (client.player == null || BoshysBTEUtils.INSTANCE == null) return;
+        if (client.player == null || BoshysBTEUtils.getInstance() == null) return;
 
-        if (BoshysBTEUtils.INSTANCE.getKmlImportHandler().isImporting()) {
+        if (BoshysBTEUtils.getInstance().getKmlImportHandler().isImporting()) {
             try {
                 Class<?> packetClass = packet.getClass();
 
@@ -72,7 +72,7 @@ public class ClientPlayNetworkHandlerMixin {
                 double newY = relativeY ? oldY + changeY : changeY;
                 double newZ = relativeZ ? oldZ + changeZ : changeZ;
 
-                BoshysBTEUtils.INSTANCE.onPlayerTeleported(client, oldX, oldY, oldZ, newX, newY, newZ);
+                BoshysBTEUtils.getInstance().onPlayerTeleported(client, oldX, oldY, oldZ, newX, newY, newZ);
             } catch (Exception e) {
                 // Reflection failed - KML will use 1-tick timeout fallback
             }

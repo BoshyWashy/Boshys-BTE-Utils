@@ -69,9 +69,9 @@ public class MarkerStorage {
     }
 
     public static Path getMarkersSavePath() {
-        if (BoshysBTEUtils.INSTANCE != null && BoshysBTEUtils.INSTANCE.getMarkerStorage() != null
-                && BoshysBTEUtils.INSTANCE.getMarkerStorage().markersSavePath != null) {
-            return BoshysBTEUtils.INSTANCE.getMarkerStorage().markersSavePath;
+        if (BoshysBTEUtils.getInstance() != null && BoshysBTEUtils.getInstance().getMarkerStorage() != null
+                && BoshysBTEUtils.getInstance().getMarkerStorage().markersSavePath != null) {
+            return BoshysBTEUtils.getInstance().getMarkerStorage().markersSavePath;
         }
         return Path.of("config/boshysbteutils/markers");
     }

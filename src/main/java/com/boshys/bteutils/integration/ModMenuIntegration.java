@@ -2,6 +2,8 @@ package com.boshys.bteutils.integration;
 
 import com.boshys.bteutils.BoshysBTEUtils;
 import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
+import com.boshys.bteutils.keybind.Keybind;
+import com.boshys.bteutils.keybind.KeybindRegistry;
 import com.boshys.bteutils.storage.MarkerStorage;
 import com.boshys.bteutils.data.MarkerData;
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
@@ -100,7 +102,7 @@ public class ModMenuIntegration implements ModMenuApi {
             int centerX = this.width / 2;
             int startY = this.height / 6;
 
-            KeyBinding keybind = BoshysBTEUtils.tpllKeybind;
+            KeyBinding keybind = KeybindRegistry.get(Keybind.TPLL);
             String keyName = keybind.getBoundKeyLocalizedText().getString();
             if (keyName.equalsIgnoreCase("key.keyboard.unknown")) {
                 keyName = Text.translatable("gui.boshysbteutils.config.keybind.not_bound").getString();
@@ -606,7 +608,7 @@ public class ModMenuIntegration implements ModMenuApi {
 
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
-            Path currentPath = BoshysBTEUtils.INSTANCE.getMarkerStorage().getMarkersSavePath();
+            Path currentPath = BoshysBTEUtils.getInstance().getMarkerStorage().getMarkersSavePath();
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.label.save_location").styled(style -> style.withBold(true)),
                     button -> {}
@@ -626,8 +628,8 @@ public class ModMenuIntegration implements ModMenuApi {
             pathField.setText(config.savedMarkersFolderPath != null ? config.savedMarkersFolderPath : "");
             pathField.setChangedListener(text -> {
                 config.savedMarkersFolderPath = text;
-                if (BoshysBTEUtils.INSTANCE != null) {
-                    BoshysBTEUtils.INSTANCE.getMarkerStorage().updateMarkersSavePath();
+                if (BoshysBTEUtils.getInstance() != null) {
+                    BoshysBTEUtils.getInstance().getMarkerStorage().updateMarkersSavePath();
                 }
                 saveConfig();
             });
@@ -748,15 +750,15 @@ public class ModMenuIntegration implements ModMenuApi {
             ).dimensions(centerX - 150, startY + 549, 300, 20).build());
 
             int fileY = startY + 574;
-            if (BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().isEmpty()) {
+            if (BoshysBTEUtils.getInstance().getMarkerStorage().getLoadedFiles().isEmpty()) {
                 this.addDrawableChild(ButtonWidget.builder(
                         Text.translatable("gui.boshysbteutils.config.loaded_files.none"),
                         button -> {}
                 ).dimensions(centerX - 150, fileY, 300, 15).build());
                 fileY += 20;
             } else {
-                for (String filename : BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().keySet()) {
-                    MarkerData.SavedMarkerFile file = BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().get(filename);
+                for (String filename : BoshysBTEUtils.getInstance().getMarkerStorage().getLoadedFiles().keySet()) {
+                    MarkerData.SavedMarkerFile file = BoshysBTEUtils.getInstance().getMarkerStorage().getLoadedFiles().get(filename);
                     this.addDrawableChild(ButtonWidget.builder(
                             Text.translatable("gui.boshysbteutils.config.loaded_files.entry", filename, file.markers.size()),
                             button -> {}
