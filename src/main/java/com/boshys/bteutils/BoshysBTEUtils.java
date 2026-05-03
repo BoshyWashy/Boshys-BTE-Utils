@@ -3,6 +3,10 @@ package com.boshys.bteutils;
 import com.boshys.bteutils.commands.CommandRegistry;
 import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
 import com.boshys.bteutils.data.MarkerData;
+import com.boshys.bteutils.overlay.OverlayData;
+import com.boshys.bteutils.overlay.OverlayRenderer;
+import com.boshys.bteutils.overlay.OverlayStorage;
+import com.boshys.bteutils.overlay.OverlayTextureManager;
 import com.boshys.bteutils.storage.KmlImportHandler;
 import com.boshys.bteutils.storage.MarkerStorage;
 import com.boshys.bteutils.rendering.CustomParticleRenderer;
@@ -39,6 +43,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
     public static KeyBinding clearMarkersKeybind;
     public static KeyBinding selectMarkerKeybind;
     public static KeyBinding deleteMarkerKeybind;
+    public static KeyBinding toggleOverlayMarkersKeybind;
 
     public static final KeyBinding.Category BTE_UTILS_CATEGORY = new KeyBinding.Category(Identifier.of("boshysbteutils", "bteutils"));
 
@@ -64,6 +69,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
     public static boolean hasAddedMarkerThisSession = false;
     public static boolean hasSelectedMarkerThisSession = false;
 
+    // Overlay selection state
+    public static OverlayData.ImageOverlay selectedOverlayCorner = null;
+    public static int selectedCornerIndex = -1; // 0-3 corners, 4 anchor
+
     // State
     private static BoshysBTEUtilsConfig config;
     private int selectionCooldown = 0;
@@ -84,6 +93,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private MarkerStorage markerStorage;
     private KmlImportHandler kmlImportHandler;
 
+    // Overlay components
+    private static OverlayStorage overlayStorage;
+    private static OverlayTextureManager overlayTextureManager;
+    private static OverlayRenderer overlayRenderer;
+
     @Override
     public void onInitializeClient() {
         INSTANCE = this;
@@ -91,11 +105,13 @@ public class BoshysBTEUtils implements ClientModInitializer {
         AutoConfig.register(BoshysBTEUtilsConfig.class, GsonConfigSerializer::new);
         config = AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).getConfig();
 
-        // Initialize components
         markerStorage = new MarkerStorage(this);
         kmlImportHandler = new KmlImportHandler(this);
-
         markerStorage.updateMarkersSavePath();
+
+        overlayStorage = new OverlayStorage();
+        overlayTextureManager = new OverlayTextureManager();
+        overlayRenderer = new OverlayRenderer(overlayStorage, overlayTextureManager);
 
         registerKeybindings();
         registerEvents();
@@ -103,6 +119,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
         WorldRenderEvents.AFTER_ENTITIES.register(context -> {
             CustomParticleRenderer.render(context);
+        });
+
+        WorldRenderEvents.AFTER_ENTITIES.register(context -> {
+            overlayRenderer.render(context);
         });
     }
 
@@ -141,6 +161,13 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 GLFW.GLFW_KEY_DELETE,
                 BTE_UTILS_CATEGORY
         ));
+
+        toggleOverlayMarkersKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.boshysbteutils.toggleoverlaymarkers",
+                InputUtil.Type.KEYSYM,
+                InputUtil.UNKNOWN_KEY.getCode(),
+                BTE_UTILS_CATEGORY
+        ));
     }
 
     private void registerEvents() {
@@ -149,7 +176,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
         });
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            // Reset session state when joining a server
             hasAddedMarkerThisSession = false;
             hasSelectedMarkerThisSession = false;
         });
@@ -173,7 +199,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
             handleTpllTeleportDetection(client);
             handleKeybinds(client);
-            handleMarkerSelection(client);
+
+            if (!handleOverlayCornerSelection(client)) {
+                handleMarkerSelection(client);
+            }
         });
     }
 
@@ -240,12 +269,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 MarkerData.handleAutoConnect(newMarker);
             }
 
-            // Check if this is the first marker added this session via manual add
             if (!hasAddedMarkerThisSession) {
                 sendFirstMarkerMessage(client);
                 hasAddedMarkerThisSession = true;
             } else {
-                // Subsequent markers - action bar only
                 notifyActionBar(client, "command.boshysbteutils.marker.added_actionbar");
             }
         }
@@ -281,24 +308,39 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 notifyError(client, "command.boshysbteutils.marker.no_selection");
             }
         }
+
+        while (toggleOverlayMarkersKeybind.wasPressed()) {
+            if (getOverlayStorage().getLoadedOverlays().isEmpty()) {
+                notifyActionBar(client, "command.boshysbteutils.overlay.no_loaded");
+                continue;
+            }
+            boolean anyVisible = false;
+            for (OverlayData.ImageOverlay o : getOverlayStorage().getLoadedOverlays().values()) {
+                if (o.markersVisible) { anyVisible = true; break; }
+            }
+            int count = 0;
+            for (OverlayData.ImageOverlay o : getOverlayStorage().getLoadedOverlays().values()) {
+                o.markersVisible = !anyVisible;
+                getOverlayStorage().saveOverlay(o);
+                count++;
+            }
+            if (anyVisible) {
+                notifyActionBar(client, "command.boshysbteutils.overlay.markers_hidden_all", count);
+            } else {
+                notifyActionBar(client, "command.boshysbteutils.overlay.markers_shown_all", count);
+            }
+        }
     }
 
     private static void sendFirstMarkerMessage(MinecraftClient client) {
         if (client.player == null) return;
 
-        // Send header
         client.player.sendMessage(Text.literal("§7============= §aBoshy's BT-Utils §7============="), false);
-        // Empty line
         client.player.sendMessage(Text.literal(""), false);
-        // Message 1
         client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.first_time.select"), false);
-        // Empty line
         client.player.sendMessage(Text.literal(""), false);
-        // Message 2
         client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.first_time.multiselect"), false);
-        // Empty line
         client.player.sendMessage(Text.literal(""), false);
-        // Message 3
         client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.first_time.move"), false);
     }
 
@@ -345,9 +387,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     MarkerData.handleAutoConnect(newMarker);
                 }
 
-                // Auto TPLL markers - no message (original behavior)
-                // Only manual addMarker shows messages
-
                 waitingForTeleport = false;
                 commandCooldownTicks = 0;
                 lastCommandSent = "";
@@ -355,10 +394,139 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
     }
 
+    private boolean handleOverlayCornerSelection(MinecraftClient client) {
+        if (client.player == null || client.world == null) return false;
+
+        ItemStack mainHandStack = client.player.getStackInHand(Hand.MAIN_HAND);
+        if (!mainHandStack.isEmpty()) return false;
+
+        if (selectionCooldown > 0) return false;
+        if (!selectMarkerKeybind.isPressed()) return false;
+
+        Vec3d eyePos = client.player.getEyePos();
+        Vec3d lookVec = client.player.getRotationVector();
+        double reachDistance = 5.0;
+        Vec3d endPos = eyePos.add(lookVec.x * reachDistance, lookVec.y * reachDistance, lookVec.z * reachDistance);
+
+        // Check arrows first if something is selected
+        if (selectedOverlayCorner != null && selectedCornerIndex != -1) {
+            Vec3d markerPos = selectedCornerIndex == 4
+                    ? selectedOverlayCorner.anchor
+                    : selectedOverlayCorner.corners[selectedCornerIndex];
+
+            double arrowReach = 1.3;
+            double arrowThickness = 0.25;
+
+            Box pxBox = new Box(markerPos.x + 0.2, markerPos.y - arrowThickness/2, markerPos.z - arrowThickness/2,
+                    markerPos.x + arrowReach, markerPos.y + arrowThickness/2, markerPos.z + arrowThickness/2);
+            if (pxBox.raycast(eyePos, endPos).isPresent()) {
+                nudgeSelectedCorner(client, 1, 0, 0);
+                selectionCooldown = SELECTION_COOLDOWN_TICKS;
+                return true;
+            }
+
+            Box nxBox = new Box(markerPos.x - arrowReach, markerPos.y - arrowThickness/2, markerPos.z - arrowThickness/2,
+                    markerPos.x - 0.2, markerPos.y + arrowThickness/2, markerPos.z + arrowThickness/2);
+            if (nxBox.raycast(eyePos, endPos).isPresent()) {
+                nudgeSelectedCorner(client, -1, 0, 0);
+                selectionCooldown = SELECTION_COOLDOWN_TICKS;
+                return true;
+            }
+
+            Box pzBox = new Box(markerPos.x - arrowThickness/2, markerPos.y - arrowThickness/2, markerPos.z + 0.2,
+                    markerPos.x + arrowThickness/2, markerPos.y + arrowThickness/2, markerPos.z + arrowReach);
+            if (pzBox.raycast(eyePos, endPos).isPresent()) {
+                nudgeSelectedCorner(client, 0, 0, 1);
+                selectionCooldown = SELECTION_COOLDOWN_TICKS;
+                return true;
+            }
+
+            Box nzBox = new Box(markerPos.x - arrowThickness/2, markerPos.y - arrowThickness/2, markerPos.z - arrowReach,
+                    markerPos.x + arrowThickness/2, markerPos.y + arrowThickness/2, markerPos.z - 0.2);
+            if (nzBox.raycast(eyePos, endPos).isPresent()) {
+                nudgeSelectedCorner(client, 0, 0, -1);
+                selectionCooldown = SELECTION_COOLDOWN_TICKS;
+                return true;
+            }
+        }
+
+        // Check corners and anchor
+        OverlayData.ImageOverlay hitOverlay = null;
+        int hitIndex = -1;
+        double closestDist = Double.MAX_VALUE;
+
+        for (OverlayData.ImageOverlay overlay : getOverlayStorage().getLoadedOverlays().values()) {
+            if (!overlay.visible || !overlay.markersVisible) continue;
+
+            for (int i = 0; i < 4; i++) {
+                Vec3d c = overlay.corners[i];
+                Box box = new Box(c.x - 0.15, c.y - 0.15, c.z - 0.15, c.x + 0.15, c.y + 0.15, c.z + 0.15);
+                Optional<Vec3d> hit = box.raycast(eyePos, endPos);
+                if (hit.isPresent()) {
+                    double d = eyePos.squaredDistanceTo(hit.get());
+                    if (d < closestDist) {
+                        closestDist = d;
+                        hitOverlay = overlay;
+                        hitIndex = i;
+                    }
+                }
+            }
+
+            Vec3d a = overlay.anchor;
+            Box box = new Box(a.x - 0.2, a.y - 0.2, a.z - 0.2, a.x + 0.2, a.y + 0.2, a.z + 0.2);
+            Optional<Vec3d> hit = box.raycast(eyePos, endPos);
+            if (hit.isPresent()) {
+                double d = eyePos.squaredDistanceTo(hit.get());
+                if (d < closestDist) {
+                    closestDist = d;
+                    hitOverlay = overlay;
+                    hitIndex = 4;
+                }
+            }
+        }
+
+        if (hitOverlay != null) {
+            selectionCooldown = SELECTION_COOLDOWN_TICKS;
+            if (selectedOverlayCorner == hitOverlay && selectedCornerIndex == hitIndex) {
+                selectedOverlayCorner = null;
+                selectedCornerIndex = -1;
+                notifyActionBar(client, "command.boshysbteutils.overlay.deselected");
+            } else {
+                selectedOverlayCorner = hitOverlay;
+                selectedCornerIndex = hitIndex;
+                String type = hitIndex == 4 ? "anchor" : OverlayData.cornerName(hitIndex);
+                notifyActionBar(client, "command.boshysbteutils.overlay.selected", type, hitOverlay.displayName);
+            }
+            return true;
+        }
+
+        if (selectedOverlayCorner != null) {
+            selectedOverlayCorner = null;
+            selectedCornerIndex = -1;
+            selectionCooldown = SELECTION_COOLDOWN_TICKS;
+            notifyActionBar(client, "command.boshysbteutils.overlay.deselected");
+            return true;
+        }
+
+        return false;
+    }
+
+    private void nudgeSelectedCorner(MinecraftClient client, int dx, int dy, int dz) {
+        if (selectedOverlayCorner == null || selectedCornerIndex == -1) return;
+        if (selectedCornerIndex == 4) {
+            selectedOverlayCorner.anchor = selectedOverlayCorner.anchor.add(dx, dy, dz);
+        } else {
+            selectedOverlayCorner.corners[selectedCornerIndex] = selectedOverlayCorner.corners[selectedCornerIndex].add(dx, dy, dz);
+        }
+        getOverlayStorage().saveOverlay(selectedOverlayCorner);
+        String type = selectedCornerIndex == 4 ? "anchor" : OverlayData.cornerName(selectedCornerIndex);
+        notifyActionBar(client, "command.boshysbteutils.overlay.nudged", type, dx, dy, dz);
+    }
+
     private void handleMarkerSelection(MinecraftClient client) {
         if (client.player == null || client.world == null) return;
 
-        if (markersHidden) return; // Don't allow selection while hidden
+        if (markersHidden) return;
 
         ItemStack mainHandStack = client.player.getStackInHand(Hand.MAIN_HAND);
         if (!mainHandStack.isEmpty()) {
@@ -437,12 +605,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     }
                     selectedMarkers.add(hitMarker);
 
-                    // Check if this is the first selection this session
                     if (!hasSelectedMarkerThisSession) {
                         sendFirstSelectionMessage(client);
                         hasSelectedMarkerThisSession = true;
                     } else {
-                        // Subsequent selections - action bar only
                         if (selectedMarkers.size() == 1) {
                             notifyActionBar(client, "command.boshysbteutils.marker.selected_actionbar.single");
                         } else {
@@ -457,19 +623,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private void sendFirstSelectionMessage(MinecraftClient client) {
         if (client.player == null) return;
 
-        // Send header
         client.player.sendMessage(Text.literal("§7============= §aBoshy's BT-Utils §7============="), false);
-        // Empty line
         client.player.sendMessage(Text.literal(""), false);
-        // Message 1
         client.player.sendMessage(Text.translatable("command.boshysbteutils.selection.first_time.connect"), false);
-        // Empty line
         client.player.sendMessage(Text.literal(""), false);
-        // Message 2
         client.player.sendMessage(Text.translatable("command.boshysbteutils.selection.first_time.disconnect"), false);
-        // Empty line
         client.player.sendMessage(Text.literal(""), false);
-        // Message 3
         client.player.sendMessage(Text.translatable("command.boshysbteutils.selection.first_time.edit_colour"), false);
     }
 
@@ -554,17 +713,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
             if (config.enableAutoLineConnection) {
                 MarkerData.handleAutoConnect(newMarker);
             }
-
-            // Auto TPLL markers from mixin - no message (original behavior)
-            // Only manual addMarker shows messages
         }
     }
 
-    // Temp hide/show methods
     public static void hideAllMarkers() {
         if (markersHidden) return;
 
-        // Store current state
         hiddenMarkers.clear();
         hiddenMarkers.addAll(markers);
         hiddenConnections.clear();
@@ -573,7 +727,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
         hiddenSelectedMarkers.addAll(selectedMarkers);
         hiddenLastAddedMarker = lastAddedMarker;
 
-        // Clear current state
         markers.clear();
         markerConnections.clear();
         selectedMarkers.clear();
@@ -586,7 +739,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
     public static void showAllMarkers() {
         if (!markersHidden) return;
 
-        // Restore state
         markers.clear();
         markers.addAll(hiddenMarkers);
         markerConnections.clear();
@@ -595,7 +747,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
         selectedMarkers.addAll(hiddenSelectedMarkers);
         lastAddedMarker = hiddenLastAddedMarker;
 
-        // Clear hidden storage
         hiddenMarkers.clear();
         hiddenConnections.clear();
         hiddenSelectedMarkers.clear();
@@ -605,7 +756,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
         hideWarningShown = false;
     }
 
-    // Getters
     public static BoshysBTEUtilsConfig getConfig() {
         return config;
     }
@@ -628,5 +778,13 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     public boolean isWaitingForTeleport() {
         return waitingForTeleport;
+    }
+
+    public static OverlayStorage getOverlayStorage() {
+        return overlayStorage;
+    }
+
+    public static OverlayTextureManager getOverlayTextureManager() {
+        return overlayTextureManager;
     }
 }

@@ -1,12 +1,15 @@
 package com.boshys.bteutils.commands;
 
 import com.boshys.bteutils.BoshysBTEUtils;
+import com.boshys.bteutils.overlay.OverlayCommands;
+import com.boshys.bteutils.overlay.OverlayStorage;
 import com.boshys.bteutils.storage.MarkerStorage;
 import com.boshys.bteutils.storage.KmlImportHandler;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
@@ -24,452 +27,434 @@ public class CommandRegistry {
     private final BoshysBTEUtils mod;
     private final MarkerStorage markerStorage;
     private final KmlImportHandler kmlImportHandler;
+    private final OverlayStorage overlayStorage;
 
+    // -----------------------------------------------------------------------
     // Suggestion providers
-    private final SuggestionProvider<FabricClientCommandSource> SAVED_FILE_SUGGESTIONS = (context, builder) -> {
-        return CompletableFuture.completedFuture(suggestSavedFiles(builder, true, false));
-    };
+    // -----------------------------------------------------------------------
 
-    private final SuggestionProvider<FabricClientCommandSource> LOADABLE_FILE_SUGGESTIONS = (context, builder) -> {
-        return CompletableFuture.completedFuture(suggestLoadableFilesWithWildcard(builder));
-    };
+    private final SuggestionProvider<FabricClientCommandSource> SAVED_FILE_SUGGESTIONS = (context, builder) ->
+            CompletableFuture.completedFuture(suggestSavedFiles(builder, true, false));
 
-    private final SuggestionProvider<FabricClientCommandSource> LOADED_FILE_SUGGESTIONS = (context, builder) -> {
-        return CompletableFuture.completedFuture(suggestLoadedFilesWithWildcard(builder));
-    };
+    private final SuggestionProvider<FabricClientCommandSource> LOADABLE_FILE_SUGGESTIONS = (context, builder) ->
+            CompletableFuture.completedFuture(suggestLoadableFilesWithWildcard(builder));
 
-    private final SuggestionProvider<FabricClientCommandSource> ALL_FILE_SUGGESTIONS = (context, builder) -> {
-        return CompletableFuture.completedFuture(suggestAllFilesWithExtensions(builder));
-    };
+    private final SuggestionProvider<FabricClientCommandSource> LOADED_FILE_SUGGESTIONS = (context, builder) ->
+            CompletableFuture.completedFuture(suggestLoadedFilesWithWildcard(builder));
 
-    private final SuggestionProvider<FabricClientCommandSource> MERGE_FILE_SUGGESTIONS = (context, builder) -> {
-        return CompletableFuture.completedFuture(suggestSavedFiles(builder, true, true));
-    };
+    private final SuggestionProvider<FabricClientCommandSource> ALL_FILE_SUGGESTIONS = (context, builder) ->
+            CompletableFuture.completedFuture(suggestAllFilesWithExtensions(builder));
+
+    private final SuggestionProvider<FabricClientCommandSource> MERGE_FILE_SUGGESTIONS = (context, builder) ->
+            CompletableFuture.completedFuture(suggestSavedFiles(builder, true, true));
 
     private final SuggestionProvider<FabricClientCommandSource> INCLUDE_EXCLUDE_SUGGESTIONS = (context, builder) -> {
         String remaining = builder.getRemaining().toLowerCase();
-        if ("includecachedmarkers".startsWith(remaining)) {
-            builder.suggest("includeCachedMarkers");
-        }
-        if ("excludecachedmarkers".startsWith(remaining)) {
-            builder.suggest("excludeCachedMarkers");
-        }
+        if ("includecachedmarkers".startsWith(remaining)) builder.suggest("includeCachedMarkers");
+        if ("excludecachedmarkers".startsWith(remaining)) builder.suggest("excludeCachedMarkers");
         return CompletableFuture.completedFuture(builder.build());
     };
 
-    private final SuggestionProvider<FabricClientCommandSource> KML_FILE_SUGGESTIONS = (context, builder) -> {
-        return CompletableFuture.completedFuture(suggestKmlFiles(builder));
-    };
+    private final SuggestionProvider<FabricClientCommandSource> KML_FILE_SUGGESTIONS = (context, builder) ->
+            CompletableFuture.completedFuture(suggestKmlFiles(builder));
+
+    // -----------------------------------------------------------------------
+    // Constructor
+    // -----------------------------------------------------------------------
 
     public CommandRegistry(BoshysBTEUtils mod, MarkerStorage markerStorage, KmlImportHandler kmlImportHandler) {
         this.mod = mod;
         this.markerStorage = markerStorage;
         this.kmlImportHandler = kmlImportHandler;
+        this.overlayStorage = BoshysBTEUtils.getOverlayStorage();
     }
 
+    // -----------------------------------------------------------------------
+    // Registration
+    // -----------------------------------------------------------------------
+
     public void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
-        dispatcher.register(ClientCommandManager.literal("boshys-bt-utils")
-                // Clear markers
-                .then(ClientCommandManager.literal("clearMarkers")
+
+        // Build the root literal first as a variable so every .then() goes on
+        // the builder — not on the LiteralCommandNode returned by dispatcher.register().
+        LiteralArgumentBuilder<FabricClientCommandSource> root =
+                ClientCommandManager.literal("boshys-bt-utils");
+
+        // ── clearMarkers ─────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("clearMarkers")
+                .executes(context -> {
+                    int cacheCount = markerStorage.getCacheMarkerCount();
+                    if (BoshysBTEUtils.getConfig().enableClearConfirmation && cacheCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
+                        markerStorage.setPendingClear(cacheCount, false);
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required", cacheCount));
+                        return 1;
+                    }
+                    int count = markerStorage.clearCacheMarkersOnly();
+                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
+                    return 1;
+                })
+                .then(ClientCommandManager.literal("all")
                         .executes(context -> {
-                            int cacheCount = markerStorage.getCacheMarkerCount();
-                            if (BoshysBTEUtils.getConfig().enableClearConfirmation && cacheCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
-                                markerStorage.setPendingClear(cacheCount, false);
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required", cacheCount));
+                            int totalCount = BoshysBTEUtils.markers.size();
+                            if (BoshysBTEUtils.getConfig().enableClearConfirmation && totalCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
+                                markerStorage.setPendingClear(totalCount, true);
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required.all", totalCount));
                                 return 1;
                             }
-                            int count = markerStorage.clearCacheMarkersOnly();
-                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
-                            return 1;
-                        })
-                        .then(ClientCommandManager.literal("all")
-                                .executes(context -> {
-                                    int totalCount = BoshysBTEUtils.markers.size();
-                                    if (BoshysBTEUtils.getConfig().enableClearConfirmation && totalCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
-                                        markerStorage.setPendingClear(totalCount, true);
-                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required.all", totalCount));
-                                        return 1;
-                                    }
-                                    int count = markerStorage.confirmClear();
-                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
-                                    return 1;
-                                })))
-
-                // Confirm clear
-                .then(ClientCommandManager.literal("confirmClear")
-                        .executes(context -> {
-                            if (!markerStorage.hasPendingClear()) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.none"));
-                                return 0;
-                            }
                             int count = markerStorage.confirmClear();
-                            if (markerStorage.isPendingClearAll()) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
-                            } else {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
-                            }
+                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
                             return 1;
-                        }))
+                        })));
 
-                // Add marker
-                .then(ClientCommandManager.literal("addMarker")
+        // ── confirmClear ─────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("confirmClear")
+                .executes(context -> {
+                    if (!markerStorage.hasPendingClear()) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.none"));
+                        return 0;
+                    }
+                    int count = markerStorage.confirmClear();
+                    if (markerStorage.isPendingClearAll()) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
+                    } else {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
+                    }
+                    return 1;
+                }));
+
+        // ── addMarker ────────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("addMarker")
+                .executes(context -> {
+                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+                        return 0;
+                    }
+                    if (BoshysBTEUtils.markersHidden) {
+                        if (!BoshysBTEUtils.hideWarningShown) {
+                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                            BoshysBTEUtils.hideWarningShown = true;
+                        }
+                        return 0;
+                    }
+                    ClientPlayerEntity player = context.getSource().getPlayer();
+                    com.boshys.bteutils.data.MarkerData.TeleportMarker newMarker =
+                            com.boshys.bteutils.data.MarkerData.addMarker(
+                                    new net.minecraft.util.math.Vec3d(player.getX(), player.getY(), player.getZ()));
+                    if (BoshysBTEUtils.getConfig().enableAutoLineConnection) {
+                        com.boshys.bteutils.data.MarkerData.handleAutoConnect(newMarker);
+                    }
+                    if (!BoshysBTEUtils.hasAddedMarkerThisSession) {
+                        sendFirstMarkerMessage(context.getSource());
+                        BoshysBTEUtils.hasAddedMarkerThisSession = true;
+                    } else {
+                        player.sendMessage(Text.translatable("command.boshysbteutils.marker.added_actionbar")
+                                .formatted(net.minecraft.util.Formatting.GREEN), true);
+                    }
+                    return 1;
+                }));
+
+        // ── tempHide ─────────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("tempHide")
+                .then(ClientCommandManager.argument("hide", BoolArgumentType.bool())
                         .executes(context -> {
-                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
-                                return 0;
-                            }
-
-                            if (BoshysBTEUtils.markersHidden) {
-                                if (!BoshysBTEUtils.hideWarningShown) {
-                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                                    BoshysBTEUtils.hideWarningShown = true;
-                                }
-                                return 0;
-                            }
-
-                            ClientPlayerEntity player = context.getSource().getPlayer();
-                            double x = player.getX();
-                            double y = player.getY();
-                            double z = player.getZ();
-
-                            com.boshys.bteutils.data.MarkerData.TeleportMarker newMarker = com.boshys.bteutils.data.MarkerData.addMarker(new net.minecraft.util.math.Vec3d(x, y, z));
-
-                            if (BoshysBTEUtils.getConfig().enableAutoLineConnection) {
-                                com.boshys.bteutils.data.MarkerData.handleAutoConnect(newMarker);
-                            }
-
-                            // Check if this is the first marker added this session via command
-                            if (!BoshysBTEUtils.hasAddedMarkerThisSession) {
-                                sendFirstMarkerMessage(context.getSource());
-                                BoshysBTEUtils.hasAddedMarkerThisSession = true;
-                            } else {
-                                // Subsequent markers - action bar only
-                                player.sendMessage(Text.translatable("command.boshysbteutils.marker.added_actionbar").formatted(net.minecraft.util.Formatting.GREEN), true);
-                            }
-
-                            return 1;
-                        }))
-
-                // Temp Hide command
-                .then(ClientCommandManager.literal("tempHide")
-                        .then(ClientCommandManager.argument("hide", BoolArgumentType.bool())
-                                .executes(context -> {
-                                    boolean shouldHide = BoolArgumentType.getBool(context, "hide");
-
-                                    if (shouldHide) {
-                                        if (BoshysBTEUtils.markersHidden) {
-                                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_hidden"));
-                                            return 0;
-                                        }
-                                        BoshysBTEUtils.hideAllMarkers();
-                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.hidden"));
-                                    } else {
-                                        if (!BoshysBTEUtils.markersHidden) {
-                                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_shown"));
-                                            return 0;
-                                        }
-                                        BoshysBTEUtils.showAllMarkers();
-                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.shown"));
-                                    }
-                                    return 1;
-                                })))
-
-                // Update marker design
-                .then(ClientCommandManager.literal("updateMarkerDesign")
-                        .executes(context -> {
-                            if (BoshysBTEUtils.markersHidden) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                                return 0;
-                            }
-
-                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
-                                return 0;
-                            }
-
-                            if (BoshysBTEUtils.markers.isEmpty()) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.no_markers"));
-                                return 0;
-                            }
-
-                            if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                                boolean hasUnloadedMarkers = false;
-                                for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.selectedMarkers) {
-                                    String origin = BoshysBTEUtils.markerOrigins.get(marker);
-                                    if (origin == null || origin.equals("autosave") || origin.startsWith("autosave_")) {
-                                        hasUnloadedMarkers = true;
-                                        break;
-                                    }
-                                }
-
-                                if (hasUnloadedMarkers) {
-                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
+                            boolean shouldHide = BoolArgumentType.getBool(context, "hide");
+                            if (shouldHide) {
+                                if (BoshysBTEUtils.markersHidden) {
+                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_hidden"));
                                     return 0;
                                 }
-
-                                int updatedCount = 0;
-                                for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.selectedMarkers) {
-                                    com.boshys.bteutils.data.MarkerData.updateMarkerDesign(marker);
-                                    updatedCount++;
-                                }
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated.selected", updatedCount));
+                                BoshysBTEUtils.hideAllMarkers();
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.hidden"));
                             } else {
-                                boolean hasUnloadedMarkers = false;
-                                for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
-                                    String origin = BoshysBTEUtils.markerOrigins.get(marker);
-                                    if (origin == null || origin.equals("autosave") || origin.startsWith("autosave_")) {
-                                        hasUnloadedMarkers = true;
-                                        break;
-                                    }
-                                }
-
-                                if (hasUnloadedMarkers) {
-                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
+                                if (!BoshysBTEUtils.markersHidden) {
+                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_shown"));
                                     return 0;
                                 }
-
-                                int updatedCount = 0;
-                                for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
-                                    com.boshys.bteutils.data.MarkerData.updateMarkerDesign(marker);
-                                    updatedCount++;
-                                }
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated", updatedCount));
+                                BoshysBTEUtils.showAllMarkers();
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.shown"));
                             }
-
                             return 1;
-                        }))
+                        })));
 
-                // Move marker
-                .then(ClientCommandManager.literal("moveMarker")
+        // ── updateMarkerDesign ───────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("updateMarkerDesign")
+                .executes(context -> {
+                    if (BoshysBTEUtils.markersHidden) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                        return 0;
+                    }
+                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+                        return 0;
+                    }
+                    if (BoshysBTEUtils.markers.isEmpty()) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.no_markers"));
+                        return 0;
+                    }
+                    if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                        boolean hasUnloaded = false;
+                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.selectedMarkers) {
+                            String o = BoshysBTEUtils.markerOrigins.get(m);
+                            if (o == null || o.equals("autosave") || o.startsWith("autosave_")) { hasUnloaded = true; break; }
+                        }
+                        if (hasUnloaded) {
+                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
+                            return 0;
+                        }
+                        int n = 0;
+                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.selectedMarkers) {
+                            com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
+                        }
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated.selected", n));
+                    } else {
+                        boolean hasUnloaded = false;
+                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
+                            String o = BoshysBTEUtils.markerOrigins.get(m);
+                            if (o == null || o.equals("autosave") || o.startsWith("autosave_")) { hasUnloaded = true; break; }
+                        }
+                        if (hasUnloaded) {
+                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
+                            return 0;
+                        }
+                        int n = 0;
+                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
+                            com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
+                        }
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated", n));
+                    }
+                    return 1;
+                }));
+
+        // ── moveMarker ───────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("moveMarker")
+                .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
+                        .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
+                                .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+                                        .executes(context -> {
+                                            if (BoshysBTEUtils.markersHidden) {
+                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                                            }
+                                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                                            }
+                                            if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection")); return 0;
+                                            }
+                                            return markerStorage.moveSelectedMarkers(context.getSource(),
+                                                    DoubleArgumentType.getDouble(context, "x"),
+                                                    DoubleArgumentType.getDouble(context, "y"),
+                                                    DoubleArgumentType.getDouble(context, "z"));
+                                        }))))
+                .executes(context -> {
+                    if (BoshysBTEUtils.markersHidden) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                    }
+                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                    }
+                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection")); return 0;
+                    }
+                    ClientPlayerEntity player = context.getSource().getPlayer();
+                    return markerStorage.moveSelectedMarkersToPosition(context.getSource(), player.getX(), player.getY(), player.getZ());
+                }));
+
+        // ── moveAllMarkers ───────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("moveAllMarkers")
+                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+                        .suggests(LOADABLE_FILE_SUGGESTIONS)
                         .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
                                 .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
                                         .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
                                                 .executes(context -> {
                                                     if (BoshysBTEUtils.markersHidden) {
-                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                                                        return 0;
+                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
                                                     }
-
                                                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
-                                                        return 0;
+                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
                                                     }
-                                                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection"));
-                                                        return 0;
-                                                    }
-                                                    double dx = DoubleArgumentType.getDouble(context, "x");
-                                                    double dy = DoubleArgumentType.getDouble(context, "y");
-                                                    double dz = DoubleArgumentType.getDouble(context, "z");
-                                                    return markerStorage.moveSelectedMarkers(context.getSource(), dx, dy, dz);
-                                                }))))
+                                                    return markerStorage.moveAllMarkersInFile(context.getSource(),
+                                                            StringArgumentType.getString(context, "filename"),
+                                                            DoubleArgumentType.getDouble(context, "x"),
+                                                            DoubleArgumentType.getDouble(context, "y"),
+                                                            DoubleArgumentType.getDouble(context, "z"));
+                                                }))))));
+
+        // ── saveMarkers ──────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("saveMarkers")
+                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+                        .executes(context -> markerStorage.saveMarkersToFile(context.getSource(),
+                                StringArgumentType.getString(context, "filename"), -1))
+                        .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
+                                .executes(context -> markerStorage.saveMarkersToFile(context.getSource(),
+                                        StringArgumentType.getString(context, "filename"),
+                                        DoubleArgumentType.getDouble(context, "radius"))))));
+
+        // ── updateMarkers ────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("updateMarkers")
+                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+                        .suggests(SAVED_FILE_SUGGESTIONS)
+                        .executes(context -> markerStorage.updateMarkerFile(context.getSource(),
+                                StringArgumentType.getString(context, "filename"), -1))
+                        .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
+                                .executes(context -> markerStorage.updateMarkerFile(context.getSource(),
+                                        StringArgumentType.getString(context, "filename"),
+                                        DoubleArgumentType.getDouble(context, "radius"))))));
+
+        // ── load ─────────────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("load")
+                .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
+                        .suggests(LOADABLE_FILE_SUGGESTIONS)
                         .executes(context -> {
-                            if (BoshysBTEUtils.markersHidden) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                                return 0;
-                            }
+                            String filename = StringArgumentType.getString(context, "filename").trim();
+                            if (filename.equals("*")) return loadAllFiles(context.getSource());
+                            return markerStorage.loadMarkerFile(context.getSource(), filename);
+                        })));
 
-                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
-                                return 0;
-                            }
-                            if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection"));
-                                return 0;
-                            }
-                            ClientPlayerEntity player = context.getSource().getPlayer();
-                            return markerStorage.moveSelectedMarkersToPosition(context.getSource(), player.getX(), player.getY(), player.getZ());
-                        }))
+        // ── hide ─────────────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("hide")
+                .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
+                        .suggests(LOADED_FILE_SUGGESTIONS)
+                        .executes(context -> {
+                            String filename = StringArgumentType.getString(context, "filename").trim();
+                            if (filename.equals("*")) return hideAllFiles(context.getSource());
+                            return markerStorage.hideMarkerFile(context.getSource(), filename);
+                        })));
 
-                // Move all markers from a specific file
-                .then(ClientCommandManager.literal("moveAllMarkers")
-                        .then(ClientCommandManager.argument("filename", StringArgumentType.string())
-                                .suggests(LOADABLE_FILE_SUGGESTIONS)
-                                .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
-                                        .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
-                                                .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
-                                                        .executes(context -> {
-                                                            if (BoshysBTEUtils.markersHidden) {
-                                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                                                                return 0;
-                                                            }
+        // ── delete ───────────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("delete")
+                .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
+                        .suggests(ALL_FILE_SUGGESTIONS)
+                        .executes(context -> markerStorage.deleteMarkerFile(context.getSource(),
+                                StringArgumentType.getString(context, "filename")))));
 
-                                                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
-                                                                return 0;
-                                                            }
-
-                                                            String filename = StringArgumentType.getString(context, "filename");
-                                                            double dx = DoubleArgumentType.getDouble(context, "x");
-                                                            double dy = DoubleArgumentType.getDouble(context, "y");
-                                                            double dz = DoubleArgumentType.getDouble(context, "z");
-
-                                                            return markerStorage.moveAllMarkersInFile(context.getSource(), filename, dx, dy, dz);
-                                                        }))))))
-
-                // Save markers
-                .then(ClientCommandManager.literal("saveMarkers")
-                        .then(ClientCommandManager.argument("filename", StringArgumentType.string())
-                                .executes(context -> {
-                                    String filename = StringArgumentType.getString(context, "filename");
-                                    return markerStorage.saveMarkersToFile(context.getSource(), filename, -1);
-                                })
-                                .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
-                                        .executes(context -> {
-                                            String filename = StringArgumentType.getString(context, "filename");
-                                            double radius = DoubleArgumentType.getDouble(context, "radius");
-                                            return markerStorage.saveMarkersToFile(context.getSource(), filename, radius);
-                                        }))))
-
-                // Update markers
-                .then(ClientCommandManager.literal("updateMarkers")
-                        .then(ClientCommandManager.argument("filename", StringArgumentType.string())
-                                .suggests(SAVED_FILE_SUGGESTIONS)
-                                .executes(context -> {
-                                    String filename = StringArgumentType.getString(context, "filename");
-                                    return markerStorage.updateMarkerFile(context.getSource(), filename, -1);
-                                })
-                                .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
-                                        .executes(context -> {
-                                            String filename = StringArgumentType.getString(context, "filename");
-                                            double radius = DoubleArgumentType.getDouble(context, "radius");
-                                            return markerStorage.updateMarkerFile(context.getSource(), filename, radius);
-                                        }))))
-
-                // Load
-                .then(ClientCommandManager.literal("load")
-                        .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
-                                .suggests(LOADABLE_FILE_SUGGESTIONS)
-                                .executes(context -> {
-                                    String filename = StringArgumentType.getString(context, "filename").trim();
-                                    if (filename.equals("*")) {
-                                        return loadAllFiles(context.getSource());
-                                    }
-                                    return markerStorage.loadMarkerFile(context.getSource(), filename);
-                                })))
-
-                // Hide
-                .then(ClientCommandManager.literal("hide")
-                        .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
-                                .suggests(LOADED_FILE_SUGGESTIONS)
-                                .executes(context -> {
-                                    String filename = StringArgumentType.getString(context, "filename").trim();
-                                    if (filename.equals("*")) {
-                                        return hideAllFiles(context.getSource());
-                                    }
-                                    return markerStorage.hideMarkerFile(context.getSource(), filename);
-                                })))
-
-                // Delete
-                .then(ClientCommandManager.literal("delete")
-                        .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
-                                .suggests(ALL_FILE_SUGGESTIONS)
-                                .executes(context -> {
-                                    String filename = StringArgumentType.getString(context, "filename");
-                                    return markerStorage.deleteMarkerFile(context.getSource(), filename);
-                                })))
-
-                // Merge markers
-                .then(ClientCommandManager.literal("mergeMarkers")
-                        .then(ClientCommandManager.argument("mergedFileName", StringArgumentType.string())
-                                .then(ClientCommandManager.argument("includeCached", StringArgumentType.string())
-                                        .suggests(INCLUDE_EXCLUDE_SUGGESTIONS)
-                                        .then(ClientCommandManager.argument("file1", StringArgumentType.string())
+        // ── mergeMarkers ─────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("mergeMarkers")
+                .then(ClientCommandManager.argument("mergedFileName", StringArgumentType.string())
+                        .then(ClientCommandManager.argument("includeCached", StringArgumentType.string())
+                                .suggests(INCLUDE_EXCLUDE_SUGGESTIONS)
+                                .then(ClientCommandManager.argument("file1", StringArgumentType.string())
+                                        .suggests(MERGE_FILE_SUGGESTIONS)
+                                        .executes(context -> executeMerge(context))
+                                        .then(ClientCommandManager.argument("file2", StringArgumentType.string())
                                                 .suggests(MERGE_FILE_SUGGESTIONS)
                                                 .executes(context -> executeMerge(context))
-                                                .then(ClientCommandManager.argument("file2", StringArgumentType.string())
+                                                .then(ClientCommandManager.argument("file3", StringArgumentType.string())
                                                         .suggests(MERGE_FILE_SUGGESTIONS)
                                                         .executes(context -> executeMerge(context))
-                                                        .then(ClientCommandManager.argument("file3", StringArgumentType.string())
+                                                        .then(ClientCommandManager.argument("file4", StringArgumentType.string())
                                                                 .suggests(MERGE_FILE_SUGGESTIONS)
                                                                 .executes(context -> executeMerge(context))
-                                                                .then(ClientCommandManager.argument("file4", StringArgumentType.string())
+                                                                .then(ClientCommandManager.argument("file5", StringArgumentType.string())
                                                                         .suggests(MERGE_FILE_SUGGESTIONS)
-                                                                        .executes(context -> executeMerge(context))
-                                                                        .then(ClientCommandManager.argument("file5", StringArgumentType.string())
-                                                                                .suggests(MERGE_FILE_SUGGESTIONS)
-                                                                                .executes(context -> executeMerge(context))))))))))
+                                                                        .executes(context -> executeMerge(context))))))))));
 
-                // Import KML
-                .then(ClientCommandManager.literal("importKML")
-                        .then(ClientCommandManager.argument("filename", StringArgumentType.string())
-                                .suggests(KML_FILE_SUGGESTIONS)
-                                .executes(context -> {
-                                    String filename = StringArgumentType.getString(context, "filename");
-                                    return kmlImportHandler.importKmlFile(context.getSource(), filename);
-                                })))
+        // ── importKML ────────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("importKML")
+                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+                        .suggests(KML_FILE_SUGGESTIONS)
+                        .executes(context -> kmlImportHandler.importKmlFile(context.getSource(),
+                                StringArgumentType.getString(context, "filename")))));
 
-                // Import Multiple KMLs
-                .then(ClientCommandManager.literal("importMultipleKMLs")
-                        .then(ClientCommandManager.argument("file1", StringArgumentType.string())
-                                .suggests(KML_FILE_SUGGESTIONS)
-                                .executes(context -> executeMultipleKmlImport(context, 1))
-                                .then(ClientCommandManager.argument("file2", StringArgumentType.string())
-                                        .suggests(KML_FILE_SUGGESTIONS)
-                                        .executes(context -> executeMultipleKmlImport(context, 2))
-                                        .then(ClientCommandManager.argument("file3", StringArgumentType.string())
-                                                .suggests(KML_FILE_SUGGESTIONS)
-                                                .executes(context -> executeMultipleKmlImport(context, 3))
-                                                .then(ClientCommandManager.argument("file4", StringArgumentType.string())
-                                                        .suggests(KML_FILE_SUGGESTIONS)
-                                                        .executes(context -> executeMultipleKmlImport(context, 4))
-                                                        .then(ClientCommandManager.argument("file5", StringArgumentType.string())
-                                                                .suggests(KML_FILE_SUGGESTIONS)
-                                                                .executes(context -> executeMultipleKmlImport(context, 5))
-                                                                .then(ClientCommandManager.argument("file6", StringArgumentType.string())
-                                                                        .suggests(KML_FILE_SUGGESTIONS)
-                                                                        .executes(context -> executeMultipleKmlImport(context, 6))
-                                                                        .then(ClientCommandManager.argument("file7", StringArgumentType.string())
-                                                                                .suggests(KML_FILE_SUGGESTIONS)
-                                                                                .executes(context -> executeMultipleKmlImport(context, 7))
-                                                                                .then(ClientCommandManager.argument("file8", StringArgumentType.string())
-                                                                                        .suggests(KML_FILE_SUGGESTIONS)
-                                                                                        .executes(context -> executeMultipleKmlImport(context, 8))
-                                                                                        .then(ClientCommandManager.argument("file9", StringArgumentType.string())
-                                                                                                .suggests(KML_FILE_SUGGESTIONS)
-                                                                                                .executes(context -> executeMultipleKmlImport(context, 9))
-                                                                                                .then(ClientCommandManager.argument("file10", StringArgumentType.string())
-                                                                                                        .suggests(KML_FILE_SUGGESTIONS)
-                                                                                                        .executes(context -> executeMultipleKmlImport(context, 10))))))))))))
-                ));
+        // ── importMultipleKMLs ───────────────────────────────────────────────
+        // Built via a helper to avoid deeply nested closing-paren confusion.
+        root.then(buildImportMultipleKmls());
+
+        // ── overlay ──────────────────────────────────────────────────────────
+        root.then(new OverlayCommands(overlayStorage).build());
+
+        dispatcher.register(root);
     }
+
+    // -----------------------------------------------------------------------
+    // importMultipleKMLs builder — extracted to keep nesting manageable
+    // -----------------------------------------------------------------------
+
+    private LiteralArgumentBuilder<FabricClientCommandSource> buildImportMultipleKmls() {
+        // Build from innermost outward so we never lose track of closing parens.
+        var file10 = ClientCommandManager.argument("file10", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 10));
+
+        var file9 = ClientCommandManager.argument("file9", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 9))
+                .then(file10);
+
+        var file8 = ClientCommandManager.argument("file8", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 8))
+                .then(file9);
+
+        var file7 = ClientCommandManager.argument("file7", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 7))
+                .then(file8);
+
+        var file6 = ClientCommandManager.argument("file6", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 6))
+                .then(file7);
+
+        var file5 = ClientCommandManager.argument("file5", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 5))
+                .then(file6);
+
+        var file4 = ClientCommandManager.argument("file4", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 4))
+                .then(file5);
+
+        var file3 = ClientCommandManager.argument("file3", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 3))
+                .then(file4);
+
+        var file2 = ClientCommandManager.argument("file2", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 2))
+                .then(file3);
+
+        var file1 = ClientCommandManager.argument("file1", StringArgumentType.string())
+                .suggests(KML_FILE_SUGGESTIONS)
+                .executes(ctx -> executeMultipleKmlImport(ctx, 1))
+                .then(file2);
+
+        return ClientCommandManager.literal("importMultipleKMLs").then(file1);
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
 
     private int executeMultipleKmlImport(com.mojang.brigadier.context.CommandContext<FabricClientCommandSource> context, int argCount) {
         List<String> files = new ArrayList<>();
-
-        try { files.add(StringArgumentType.getString(context, "file1")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file2")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file3")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file4")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file5")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file6")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file7")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file8")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file9")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file10")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file1")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file2")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file3")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file4")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file5")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file6")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file7")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file8")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file9")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file10")); } catch (Exception ignored) {}
 
         if (files.isEmpty()) {
             context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
             return 0;
         }
-
         return kmlImportHandler.importMultipleKmlFiles(context.getSource(), files);
     }
 
     private void sendFirstMarkerMessage(FabricClientCommandSource source) {
-        // Send header
         source.sendFeedback(Text.literal("§7============= §aBoshy's BT-Utils §7============="));
-        // Empty line
         source.sendFeedback(Text.literal(""));
-        // Message 1
         source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.select"));
-        // Empty line
         source.sendFeedback(Text.literal(""));
-        // Message 2
         source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.multiselect"));
-        // Empty line
         source.sendFeedback(Text.literal(""));
-        // Message 3
         source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.move"));
     }
 
@@ -482,7 +467,8 @@ public class CommandRegistry {
             return 0;
         }
 
-        File[] files = dir.listFiles((d, name) -> name.endsWith(".json") && !name.equals("autosave.json") && !name.startsWith("autosave_"));
+        File[] files = dir.listFiles((d, name) ->
+                name.endsWith(".json") && !name.equals("autosave.json") && !name.startsWith("autosave_"));
 
         if (files == null || files.length == 0) {
             source.sendFeedback(Text.translatable("command.boshysbteutils.file.not_found", "*"));
@@ -509,7 +495,6 @@ public class CommandRegistry {
         if (!failedFiles.isEmpty()) {
             source.sendFeedback(Text.translatable("command.boshysbteutils.file.load_failed.multiple", String.join(", ", failedFiles)));
         }
-
         return loadedCount > 0 ? 1 : 0;
     }
 
@@ -521,13 +506,9 @@ public class CommandRegistry {
 
         List<String> filesToHide = new ArrayList<>(markerStorage.getLoadedFiles().keySet());
         int hiddenCount = 0;
-
         for (String filename : filesToHide) {
-            if (markerStorage.hideMarkerFile(source, filename) == 1) {
-                hiddenCount++;
-            }
+            if (markerStorage.hideMarkerFile(source, filename) == 1) hiddenCount++;
         }
-
         source.sendFeedback(Text.translatable("command.boshysbteutils.file.hidden.multiple", hiddenCount));
         return hiddenCount > 0 ? 1 : 0;
     }
@@ -537,26 +518,28 @@ public class CommandRegistry {
         String includeCached = StringArgumentType.getString(context, "includeCached");
 
         List<String> files = new ArrayList<>();
-
-        try { files.add(StringArgumentType.getString(context, "file1")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file2")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file3")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file4")); } catch (Exception e) {}
-        try { files.add(StringArgumentType.getString(context, "file5")); } catch (Exception e) {}
+        try { files.add(StringArgumentType.getString(context, "file1")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file2")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file3")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file4")); } catch (Exception ignored) {}
+        try { files.add(StringArgumentType.getString(context, "file5")); } catch (Exception ignored) {}
 
         if (files.isEmpty()) {
             context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.merge.no_files"));
             return 0;
         }
-
         return markerStorage.mergeMarkerFiles(context.getSource(), mergedFileName,
                 includeCached.equalsIgnoreCase("includeCachedMarkers"), files);
     }
 
-    private com.mojang.brigadier.suggestion.Suggestions suggestSavedFiles(com.mojang.brigadier.suggestion.SuggestionsBuilder builder, boolean includeAll, boolean includeAutosave) {
+    // -----------------------------------------------------------------------
+    // Suggestion helpers
+    // -----------------------------------------------------------------------
+
+    private com.mojang.brigadier.suggestion.Suggestions suggestSavedFiles(
+            com.mojang.brigadier.suggestion.SuggestionsBuilder builder, boolean includeAll, boolean includeAutosave) {
         String remaining = builder.getRemaining().toLowerCase();
-        Path savePath = MarkerStorage.getMarkersSavePath();
-        File dir = savePath.toFile();
+        File dir = MarkerStorage.getMarkersSavePath().toFile();
 
         if (dir.exists() && dir.isDirectory()) {
             File[] files = dir.listFiles((d, name) -> {
@@ -569,9 +552,7 @@ public class CommandRegistry {
                 for (File file : files) {
                     String name = file.getName().replace(".json", "");
                     if (includeAll || !markerStorage.getLoadedFiles().containsKey(name)) {
-                        if (name.toLowerCase().startsWith(remaining)) {
-                            builder.suggest(name);
-                        }
+                        if (name.toLowerCase().startsWith(remaining)) builder.suggest(name);
                     }
                 }
             }
@@ -579,30 +560,20 @@ public class CommandRegistry {
         return builder.build();
     }
 
-    private com.mojang.brigadier.suggestion.Suggestions suggestLoadableFilesWithWildcard(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+    private com.mojang.brigadier.suggestion.Suggestions suggestLoadableFilesWithWildcard(
+            com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         String remaining = builder.getRemaining().toLowerCase();
+        if ("*".startsWith(remaining)) builder.suggest("*");
 
-        if ("*".startsWith(remaining)) {
-            builder.suggest("*");
-        }
-
-        Path savePath = MarkerStorage.getMarkersSavePath();
-        File dir = savePath.toFile();
-
+        File dir = MarkerStorage.getMarkersSavePath().toFile();
         if (dir.exists() && dir.isDirectory()) {
-            File[] files = dir.listFiles((d, name) -> {
-                if (!name.endsWith(".json")) return false;
-                if (name.equals("autosave.json")) return false;
-                if (name.startsWith("autosave_")) return false;
-                return true;
-            });
+            File[] files = dir.listFiles((d, name) ->
+                    name.endsWith(".json") && !name.equals("autosave.json") && !name.startsWith("autosave_"));
             if (files != null) {
                 for (File file : files) {
                     String name = file.getName().replace(".json", "");
-                    if (!markerStorage.getLoadedFiles().containsKey(name)) {
-                        if (name.toLowerCase().startsWith(remaining)) {
-                            builder.suggest(name);
-                        }
+                    if (!markerStorage.getLoadedFiles().containsKey(name) && name.toLowerCase().startsWith(remaining)) {
+                        builder.suggest(name);
                     }
                 }
             }
@@ -610,69 +581,49 @@ public class CommandRegistry {
         return builder.build();
     }
 
-    private com.mojang.brigadier.suggestion.Suggestions suggestLoadedFilesWithWildcard(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+    private com.mojang.brigadier.suggestion.Suggestions suggestLoadedFilesWithWildcard(
+            com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         String remaining = builder.getRemaining().toLowerCase();
-
-        if ("*".startsWith(remaining)) {
-            builder.suggest("*");
-        }
-
+        if ("*".startsWith(remaining)) builder.suggest("*");
         for (String name : markerStorage.getLoadedFiles().keySet()) {
-            if (name.toLowerCase().startsWith(remaining)) {
-                builder.suggest(name);
-            }
+            if (name.toLowerCase().startsWith(remaining)) builder.suggest(name);
         }
         return builder.build();
     }
 
-    private com.mojang.brigadier.suggestion.Suggestions suggestAllFilesWithExtensions(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+    private com.mojang.brigadier.suggestion.Suggestions suggestAllFilesWithExtensions(
+            com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         String remaining = builder.getRemaining().toLowerCase();
-        Path savePath = MarkerStorage.getMarkersSavePath();
-        File dir = savePath.toFile();
+        File dir = MarkerStorage.getMarkersSavePath().toFile();
 
         if (dir.exists() && dir.isDirectory()) {
             File[] jsonFiles = dir.listFiles((d, name) -> name.endsWith(".json"));
             if (jsonFiles != null) {
-                for (File file : jsonFiles) {
-                    String name = file.getName();
-                    if (name.toLowerCase().startsWith(remaining)) {
-                        builder.suggest(name);
-                    }
+                for (File f : jsonFiles) {
+                    if (f.getName().toLowerCase().startsWith(remaining)) builder.suggest(f.getName());
                 }
             }
-
-            File[] kmlFiles = dir.listFiles((d, name) -> {
-                String lower = name.toLowerCase();
-                return lower.endsWith(".kml");
-            });
+            File[] kmlFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".kml"));
             if (kmlFiles != null) {
-                for (File file : kmlFiles) {
-                    String name = file.getName();
-                    if (name.toLowerCase().startsWith(remaining)) {
-                        builder.suggest(name);
-                    }
+                for (File f : kmlFiles) {
+                    if (f.getName().toLowerCase().startsWith(remaining)) builder.suggest(f.getName());
                 }
             }
         }
         return builder.build();
     }
 
-    private com.mojang.brigadier.suggestion.Suggestions suggestKmlFiles(com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+    private com.mojang.brigadier.suggestion.Suggestions suggestKmlFiles(
+            com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         String remaining = builder.getRemaining().toLowerCase();
-        Path kmlPath = MarkerStorage.getKmlSavePath();
-        File dir = kmlPath.toFile();
+        File dir = MarkerStorage.getKmlSavePath().toFile();
 
         if (dir.exists() && dir.isDirectory()) {
-            File[] files = dir.listFiles((d, name) -> {
-                String lowerName = name.toLowerCase();
-                return lowerName.endsWith(".kml");
-            });
+            File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".kml"));
             if (files != null) {
-                for (File file : files) {
-                    String name = file.getName().replace(".kml", "").replace(".KML", "");
-                    if (name.toLowerCase().startsWith(remaining)) {
-                        builder.suggest(name);
-                    }
+                for (File f : files) {
+                    String name = f.getName().replaceAll("(?i)\\.kml$", "");
+                    if (name.toLowerCase().startsWith(remaining)) builder.suggest(name);
                 }
             }
         }
