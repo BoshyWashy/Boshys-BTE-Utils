@@ -1,6 +1,7 @@
 plugins {
     id "fabric-loom" version "${loom_version}"
     id "java"
+    id "io.freefair.lombok" version "9.5.0"
 }
 
 group = "com.boshys.bteutils"
