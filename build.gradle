@@ -10,6 +10,7 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+    withSourcesJar()
 }
 
 def minecraftVersion = "1.21.10"
@@ -46,13 +47,6 @@ loom {
     mixin {
         defaultRefmapName = "boshysbteutils-refmap.json"
     }
-}
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-    withSourcesJar()
 }
 
 tasks.withType(JavaCompile).configureEach {
