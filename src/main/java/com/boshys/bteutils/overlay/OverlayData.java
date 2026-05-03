@@ -29,6 +29,8 @@ public class OverlayData {
         public boolean flipped;
         /** Whether the edit markers (corners + anchor) are visible */
         public boolean markersVisible;
+        /** Per-overlay image opacity (0.0 to 1.0) */
+        public float imageOpacity;
 
         public ImageOverlay(String displayName, String imageFilename, Vec3d anchor, double size) {
             this.displayName = displayName;
@@ -42,6 +44,7 @@ public class OverlayData {
             this.visible = true;
             this.flipped = false;
             this.markersVisible = true;
+            this.imageOpacity = 1.0f;
         }
     }
 
@@ -58,6 +61,7 @@ public class OverlayData {
         public boolean visible;
         public boolean flipped;
         public boolean markersVisible = true;
+        public float imageOpacity = 1.0f;
 
         /** Legacy fields (kept for backward compat) */
         public double x, y, z;
@@ -79,6 +83,7 @@ public class OverlayData {
             this.visible = overlay.visible;
             this.flipped = overlay.flipped;
             this.markersVisible = overlay.markersVisible;
+            this.imageOpacity = overlay.imageOpacity;
         }
 
         public ImageOverlay toOverlay() {
@@ -94,6 +99,7 @@ public class OverlayData {
                 o.visible = visible;
                 o.flipped = flipped;
                 o.markersVisible = markersVisible;
+                o.imageOpacity = imageOpacity;
                 return o;
             } else {
                 // Legacy fallback
@@ -102,6 +108,7 @@ public class OverlayData {
                 o.visible = visible;
                 o.flipped = flipped;
                 o.markersVisible = true;
+                o.imageOpacity = 1.0f;
                 return o;
             }
         }
