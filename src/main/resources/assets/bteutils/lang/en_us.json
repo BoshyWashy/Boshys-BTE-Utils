@@ -308,4 +308,4 @@
   "command.boshysbteutils.circle.removed": "§aRemoved circle from §f%d§a marker(s)!",
   "command.boshysbteutils.marker.temp_moved": "§aMoved §f%d§a temporary marker(s) by (§f%.2f§a, §f%.2f§a, §f%.2f§a)!",
   "command.boshysbteutils.file.location": "§aMarker files location: §f%s"
-}
+} 
