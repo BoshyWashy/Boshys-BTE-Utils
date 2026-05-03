@@ -10,12 +10,15 @@ public class MarkerData {
         public int colour;
         public float scale;
         public float opacity;
+        /** Radius of an optional circle drawn around this marker. 0 = no circle. */
+        public double circleRadius;
 
         public TeleportMarker(Vec3d position, int colour, float scale, float opacity) {
             this.position = position;
             this.colour = colour;
             this.scale = scale;
             this.opacity = opacity;
+            this.circleRadius = 0;
         }
     }
 
@@ -34,6 +37,8 @@ public class MarkerData {
         public int colour;
         public float scale;
         public float opacity;
+        /** Persisted circle radius — 0 means no circle. */
+        public double circleRadius;
 
         public SavedMarkerData(double x, double y, double z, int colour, float scale, float opacity) {
             this.x = x;
@@ -42,6 +47,13 @@ public class MarkerData {
             this.colour = colour;
             this.scale = scale;
             this.opacity = opacity;
+            this.circleRadius = 0;
+        }
+
+        /** Full constructor including circle radius. */
+        public SavedMarkerData(double x, double y, double z, int colour, float scale, float opacity, double circleRadius) {
+            this(x, y, z, colour, scale, opacity);
+            this.circleRadius = circleRadius;
         }
     }
 

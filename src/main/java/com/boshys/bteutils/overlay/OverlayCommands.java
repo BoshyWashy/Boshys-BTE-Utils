@@ -1,6 +1,8 @@
 package com.boshys.bteutils.overlay;
 
+import com.boshys.bteutils.BoshysBTEUtils;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -76,7 +78,8 @@ public class OverlayCommands {
                 .then(buildReanchor())
                 .then(buildCorner())
                 .then(buildResetCorners())
-                .then(buildToggleMarkers());
+                .then(buildToggleMarkers())
+                .then(buildOpacity());
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildNew() {
@@ -435,7 +438,7 @@ public class OverlayCommands {
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildDelete() {
         return ClientCommandManager.literal("delete")
-                .then(ClientCommandManager.argument("name", StringArgumentType.greedyString())
+                .then(ClientCommandManager.argument("name", StringArgumentType.string())
                         .suggests(savedOverlays())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name").trim();
@@ -541,7 +544,7 @@ public class OverlayCommands {
     private LiteralArgumentBuilder<FabricClientCommandSource> buildCorner() {
         SuggestionProvider<FabricClientCommandSource> cornerSuggestions = (ctx, builder) -> {
             String rem = builder.getRemaining().toLowerCase();
-            for (String s : new String[]{"nw", "ne", "se", "sw"}) {
+            for (String s : new String[]{"selected", "nw", "ne", "se", "sw"}) {
                 if (s.startsWith(rem)) builder.suggest(s);
             }
             return CompletableFuture.completedFuture(builder.build());
@@ -554,10 +557,15 @@ public class OverlayCommands {
                                 .then(ClientCommandManager.argument("name", StringArgumentType.string())
                                         .suggests(loadedOverlaysOnly())
                                         .executes(ctx -> {
-                                            int corner = OverlayData.parseCorner(StringArgumentType.getString(ctx, "corner"));
+                                            int corner = resolveCorner(ctx);
                                             if (corner == -1) {
                                                 ctx.getSource().sendFeedback(Text.translatable(
                                                         "command.boshysbteutils.overlay.invalid_corner"));
+                                                return 0;
+                                            }
+                                            if (corner == -2) {
+                                                ctx.getSource().sendFeedback(Text.translatable(
+                                                        "command.boshysbteutils.overlay.no_corner_selected"));
                                                 return 0;
                                             }
                                             String name = StringArgumentType.getString(ctx, "name");
@@ -583,10 +591,15 @@ public class OverlayCommands {
                                                 .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
                                                         .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
                                                                 .executes(ctx -> {
-                                                                    int corner = OverlayData.parseCorner(StringArgumentType.getString(ctx, "corner"));
+                                                                    int corner = resolveCorner(ctx);
                                                                     if (corner == -1) {
                                                                         ctx.getSource().sendFeedback(Text.translatable(
                                                                                 "command.boshysbteutils.overlay.invalid_corner"));
+                                                                        return 0;
+                                                                    }
+                                                                    if (corner == -2) {
+                                                                        ctx.getSource().sendFeedback(Text.translatable(
+                                                                                "command.boshysbteutils.overlay.no_corner_selected"));
                                                                         return 0;
                                                                     }
                                                                     String name = StringArgumentType.getString(ctx, "name");
@@ -608,6 +621,17 @@ public class OverlayCommands {
                                                                             String.format("%.2f", dx), String.format("%.2f", dy), String.format("%.2f", dz)));
                                                                     return 1;
                                                                 })))))));
+    }
+
+    private int resolveCorner(com.mojang.brigadier.context.CommandContext<FabricClientCommandSource> ctx) {
+        String cornerStr = StringArgumentType.getString(ctx, "corner");
+        if (cornerStr.equalsIgnoreCase("selected")) {
+            if (BoshysBTEUtils.selectedOverlayCorner != null && BoshysBTEUtils.selectedCornerIndex >= 0 && BoshysBTEUtils.selectedCornerIndex <= 3) {
+                return BoshysBTEUtils.selectedCornerIndex;
+            }
+            return -2;
+        }
+        return OverlayData.parseCorner(cornerStr);
     }
 
     // ------------------------------------------------------------------
@@ -680,7 +704,7 @@ public class OverlayCommands {
                                 count++;
                             }
                             ctx.getSource().sendFeedback(Text.translatable(
-                                    "command.boshysbteutils.overlay.markers_toggled",
+                                    "command.boshysbteutils.overlay.markers_toggled_all",
                                     anyVisible ? "hidden" : "shown"));
                             return count > 0 ? 1 : 0;
                         }))
@@ -698,9 +722,51 @@ public class OverlayCommands {
                             overlay.markersVisible = !overlay.markersVisible;
                             storage.saveOverlay(overlay);
                             ctx.getSource().sendFeedback(Text.translatable(
-                                    "command.boshysbteutils.overlay.markers_toggled",
+                                    "command.boshysbteutils.overlay.markers_toggled_single",
+                                    overlay.displayName,
                                     overlay.markersVisible ? "shown" : "hidden"));
                             return 1;
                         }));
+    }
+
+    // ------------------------------------------------------------------
+    // Opacity: per-overlay image opacity
+    // ------------------------------------------------------------------
+    private LiteralArgumentBuilder<FabricClientCommandSource> buildOpacity() {
+        return ClientCommandManager.literal("opacity")
+                .then(ClientCommandManager.literal("*")
+                        .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+                                .executes(ctx -> {
+                                    float opacity = FloatArgumentType.getFloat(ctx, "value");
+                                    int count = 0;
+                                    for (OverlayData.ImageOverlay overlay : storage.getLoadedOverlays().values()) {
+                                        overlay.imageOpacity = opacity;
+                                        storage.saveOverlay(overlay);
+                                        count++;
+                                    }
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.opacity_all", count, opacity));
+                                    return count > 0 ? 1 : 0;
+                                })))
+                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                        .suggests(loadedOverlaysOnly())
+                        .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+                                .executes(ctx -> {
+                                    String name = StringArgumentType.getString(ctx, "name");
+                                    String safeKey = OverlayData.toSafeFilename(name);
+                                    OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
+                                    if (overlay == null) {
+                                        ctx.getSource().sendFeedback(Text.translatable(
+                                                "command.boshysbteutils.overlay.not_loaded", safeKey));
+                                        return 0;
+                                    }
+                                    float opacity = FloatArgumentType.getFloat(ctx, "value");
+                                    overlay.imageOpacity = opacity;
+                                    storage.saveOverlay(overlay);
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.opacity_set",
+                                            overlay.displayName, opacity));
+                                    return 1;
+                                })));
     }
 }

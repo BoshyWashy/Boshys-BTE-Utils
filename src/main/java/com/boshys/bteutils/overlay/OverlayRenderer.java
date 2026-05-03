@@ -70,6 +70,7 @@ public class OverlayRenderer {
 
         int light = LightmapTextureManager.MAX_LIGHT_COORDINATE;
         int overlayUV = OverlayTexture.DEFAULT_UV;
+        float opacity = overlay.imageOpacity;
 
         // Top face
         for (int i = 0; i < 4; i++) {
@@ -77,7 +78,7 @@ public class OverlayRenderer {
             double cy = overlay.corners[i].y - camPos.y;
             double cz = overlay.corners[i].z - camPos.z;
             buf.vertex(posMatrix, (float) cx, (float) cy + 0.005f, (float) cz)
-                    .color(1f, 1f, 1f, 1f)
+                    .color(1f, 1f, 1f, opacity)
                     .texture(u[i], v[i])
                     .overlay(overlayUV)
                     .light(light)
@@ -91,7 +92,7 @@ public class OverlayRenderer {
             double cy = overlay.corners[idx].y - camPos.y;
             double cz = overlay.corners[idx].z - camPos.z;
             buf.vertex(posMatrix, (float) cx, (float) cy - 0.005f, (float) cz)
-                    .color(1f, 1f, 1f, 1f)
+                    .color(1f, 1f, 1f, opacity)
                     .texture(u[i], v[i])
                     .overlay(overlayUV)
                     .light(light)
@@ -154,27 +155,7 @@ public class OverlayRenderer {
 
     private void renderArrow(VertexConsumerProvider consumers, MatrixStack matrices, MatrixStack.Entry entry,
                              Vec3d start, Vec3d dir, float r, float g, float b) {
-        VertexConsumer lineBuf = consumers.getBuffer(RenderLayer.getLines());
-
-        float x1 = (float) start.x;
-        float y1 = (float) start.y;
-        float z1 = (float) start.z;
-        float x2 = (float) (start.x + dir.x);
-        float y2 = (float) (start.y + dir.y);
-        float z2 = (float) (start.z + dir.z);
-
-        lineBuf.vertex(entry.getPositionMatrix(), x1, y1, z1)
-                .color(r, g, b, 1f)
-                .normal(entry, (float) dir.x, (float) dir.y, (float) dir.z)
-                .overlay(0)
-                .light(15728880);
-        lineBuf.vertex(entry.getPositionMatrix(), x2, y2, z2)
-                .color(r, g, b, 1f)
-                .normal(entry, (float) dir.x, (float) dir.y, (float) dir.z)
-                .overlay(0)
-                .light(15728880);
-
-        // Arrowhead cube
+        // Arrowhead cube only — lines removed
         matrices.push();
         matrices.translate(start.x + dir.x, start.y + dir.y, start.z + dir.z);
         MatrixStack.Entry headEntry = matrices.peek();

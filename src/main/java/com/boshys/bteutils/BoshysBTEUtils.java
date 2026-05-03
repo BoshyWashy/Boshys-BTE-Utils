@@ -408,41 +408,41 @@ public class BoshysBTEUtils implements ClientModInitializer {
         double reachDistance = 5.0;
         Vec3d endPos = eyePos.add(lookVec.x * reachDistance, lookVec.y * reachDistance, lookVec.z * reachDistance);
 
-        // Check arrows first if something is selected
+        // Check nudge cubes first if something is selected
         if (selectedOverlayCorner != null && selectedCornerIndex != -1) {
             Vec3d markerPos = selectedCornerIndex == 4
                     ? selectedOverlayCorner.anchor
                     : selectedOverlayCorner.corners[selectedCornerIndex];
 
-            double arrowReach = 1.3;
-            double arrowThickness = 0.25;
+            double cubeOffset = 1.5;
+            double cubeHalf = 0.15;
 
-            Box pxBox = new Box(markerPos.x + 0.2, markerPos.y - arrowThickness/2, markerPos.z - arrowThickness/2,
-                    markerPos.x + arrowReach, markerPos.y + arrowThickness/2, markerPos.z + arrowThickness/2);
+            Box pxBox = new Box(markerPos.x + cubeOffset - cubeHalf, markerPos.y - cubeHalf, markerPos.z - cubeHalf,
+                    markerPos.x + cubeOffset + cubeHalf, markerPos.y + cubeHalf, markerPos.z + cubeHalf);
             if (pxBox.raycast(eyePos, endPos).isPresent()) {
                 nudgeSelectedCorner(client, 1, 0, 0);
                 selectionCooldown = SELECTION_COOLDOWN_TICKS;
                 return true;
             }
 
-            Box nxBox = new Box(markerPos.x - arrowReach, markerPos.y - arrowThickness/2, markerPos.z - arrowThickness/2,
-                    markerPos.x - 0.2, markerPos.y + arrowThickness/2, markerPos.z + arrowThickness/2);
+            Box nxBox = new Box(markerPos.x - cubeOffset - cubeHalf, markerPos.y - cubeHalf, markerPos.z - cubeHalf,
+                    markerPos.x - cubeOffset + cubeHalf, markerPos.y + cubeHalf, markerPos.z + cubeHalf);
             if (nxBox.raycast(eyePos, endPos).isPresent()) {
                 nudgeSelectedCorner(client, -1, 0, 0);
                 selectionCooldown = SELECTION_COOLDOWN_TICKS;
                 return true;
             }
 
-            Box pzBox = new Box(markerPos.x - arrowThickness/2, markerPos.y - arrowThickness/2, markerPos.z + 0.2,
-                    markerPos.x + arrowThickness/2, markerPos.y + arrowThickness/2, markerPos.z + arrowReach);
+            Box pzBox = new Box(markerPos.x - cubeHalf, markerPos.y - cubeHalf, markerPos.z + cubeOffset - cubeHalf,
+                    markerPos.x + cubeHalf, markerPos.y + cubeHalf, markerPos.z + cubeOffset + cubeHalf);
             if (pzBox.raycast(eyePos, endPos).isPresent()) {
                 nudgeSelectedCorner(client, 0, 0, 1);
                 selectionCooldown = SELECTION_COOLDOWN_TICKS;
                 return true;
             }
 
-            Box nzBox = new Box(markerPos.x - arrowThickness/2, markerPos.y - arrowThickness/2, markerPos.z - arrowReach,
-                    markerPos.x + arrowThickness/2, markerPos.y + arrowThickness/2, markerPos.z - 0.2);
+            Box nzBox = new Box(markerPos.x - cubeHalf, markerPos.y - cubeHalf, markerPos.z - cubeOffset - cubeHalf,
+                    markerPos.x + cubeHalf, markerPos.y + cubeHalf, markerPos.z - cubeOffset + cubeHalf);
             if (nzBox.raycast(eyePos, endPos).isPresent()) {
                 nudgeSelectedCorner(client, 0, 0, -1);
                 selectionCooldown = SELECTION_COOLDOWN_TICKS;

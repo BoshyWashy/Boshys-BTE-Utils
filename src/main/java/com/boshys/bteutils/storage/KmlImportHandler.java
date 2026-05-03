@@ -43,7 +43,7 @@ public class KmlImportHandler {
     private Vec3d lastCheckedPosition = null;
     private int teleportCheckTicks = 0;
     private static final int TELEPORT_TIMEOUT_TICKS = 100; // 5 seconds max wait
-    private static final double MINIMUM_MOVEMENT = 0.5; // Must move at least 0.5 blocks
+    private static final double MINIMUM_MOVEMENT = 0.001; // Changed from 0.5 to 0.001 for precise detection
     private int stablePositionTicks = 0; // How long position has been stable after movement
 
     private boolean inWorldEditSetupPhase = false;

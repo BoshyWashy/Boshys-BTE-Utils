@@ -64,6 +64,11 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Line thickness/width (default: 0.1)")
     public float lineThickness = 0.1f;
 
+    // Overlay Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Overlay image opacity (0.0 to 1.0, default: 1.0)")
+    public float overlayImageOpacity = 1.0f;
+
     // Saved Markers Settings
     @ConfigEntry.Gui.Tooltip
     @Comment("Custom folder path for saved marker files (leave empty for default: config/boshysbteutils/markers)")

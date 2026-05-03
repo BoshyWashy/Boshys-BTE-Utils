@@ -17,7 +17,9 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
 
+import java.awt.Desktop;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -75,8 +77,6 @@ public class CommandRegistry {
 
     public void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
 
-        // Build the root literal first as a variable so every .then() goes on
-        // the builder — not on the LiteralCommandNode returned by dispatcher.register().
         LiteralArgumentBuilder<FabricClientCommandSource> root =
                 ClientCommandManager.literal("boshys-bt-utils");
 
@@ -259,8 +259,9 @@ public class CommandRegistry {
                     return markerStorage.moveSelectedMarkersToPosition(context.getSource(), player.getX(), player.getY(), player.getZ());
                 }));
 
-        // ── moveAllMarkers ───────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("moveAllMarkers")
+        // ── moveAllSavedMarkers ──────────────────────────────────────────────
+        // (previously "moveAllMarkers" — renamed to avoid confusion with the new moveAllTempMarkers)
+        root.then(ClientCommandManager.literal("moveAllSavedMarkers")
                 .then(ClientCommandManager.argument("filename", StringArgumentType.string())
                         .suggests(LOADABLE_FILE_SUGGESTIONS)
                         .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
@@ -278,6 +279,40 @@ public class CommandRegistry {
                                                             DoubleArgumentType.getDouble(context, "x"),
                                                             DoubleArgumentType.getDouble(context, "y"),
                                                             DoubleArgumentType.getDouble(context, "z"));
+                                                }))))));
+
+        // ── moveAllTempMarkers ───────────────────────────────────────────────
+        // Moves all cached (unsaved) markers — optionally filtered by radius.
+        root.then(ClientCommandManager.literal("moveAllTempMarkers")
+                .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
+                        .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
+                                .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+                                        .executes(context -> {
+                                            if (BoshysBTEUtils.markersHidden) {
+                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                                            }
+                                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                                            }
+                                            return moveAllTempMarkers(context.getSource(),
+                                                    DoubleArgumentType.getDouble(context, "x"),
+                                                    DoubleArgumentType.getDouble(context, "y"),
+                                                    DoubleArgumentType.getDouble(context, "z"),
+                                                    -1);
+                                        })
+                                        .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
+                                                .executes(context -> {
+                                                    if (BoshysBTEUtils.markersHidden) {
+                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                                                    }
+                                                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                                                    }
+                                                    return moveAllTempMarkers(context.getSource(),
+                                                            DoubleArgumentType.getDouble(context, "x"),
+                                                            DoubleArgumentType.getDouble(context, "y"),
+                                                            DoubleArgumentType.getDouble(context, "z"),
+                                                            DoubleArgumentType.getDouble(context, "radius"));
                                                 }))))));
 
         // ── saveMarkers ──────────────────────────────────────────────────────
@@ -357,8 +392,86 @@ public class CommandRegistry {
                                 StringArgumentType.getString(context, "filename")))));
 
         // ── importMultipleKMLs ───────────────────────────────────────────────
-        // Built via a helper to avoid deeply nested closing-paren confusion.
         root.then(buildImportMultipleKmls());
+
+        // ── markerFileLocation ───────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("markerFileLocation")
+                .executes(context -> {
+                    Path savePath = MarkerStorage.getMarkersSavePath();
+                    File dir = savePath.toFile();
+                    if (!dir.exists()) {
+                        dir.mkdirs();
+                    }
+                    context.getSource().sendFeedback(Text.translatable(
+                            "command.boshysbteutils.file.location", savePath.toAbsolutePath().toString()));
+                    // Try to open the folder in the OS file manager
+                    try {
+                        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                            Desktop.getDesktop().open(dir);
+                        }
+                    } catch (IOException | UnsupportedOperationException ignored) {
+                        // Silently ignore if the desktop API is unavailable (e.g. headless)
+                    }
+                    return 1;
+                }));
+
+        // ── createCircle ─────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("createCircle")
+                .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0.1))
+                        .executes(context -> {
+                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+                                return 0;
+                            }
+                            double radius = DoubleArgumentType.getDouble(context, "radius");
+                            ClientPlayerEntity player = context.getSource().getPlayer();
+
+                            if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                                // Attach circle to each selected marker
+                                int count = 0;
+                                for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.selectedMarkers) {
+                                    marker.circleRadius = radius;
+                                    count++;
+                                }
+                                context.getSource().sendFeedback(Text.translatable(
+                                        "command.boshysbteutils.circle.created.selected", count, radius));
+                            } else {
+                                // Create a new marker at player position and attach circle
+                                Vec3d pos = new Vec3d(player.getX(), player.getY(), player.getZ());
+                                com.boshys.bteutils.data.MarkerData.TeleportMarker newMarker =
+                                        com.boshys.bteutils.data.MarkerData.addMarker(pos);
+                                newMarker.circleRadius = radius;
+                                context.getSource().sendFeedback(Text.translatable(
+                                        "command.boshysbteutils.circle.created.new", radius));
+                            }
+                            return 1;
+                        })));
+
+        // ── removeCircle ─────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("removeCircle")
+                .executes(context -> {
+                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+                        return 0;
+                    }
+                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.circle.no_selection"));
+                        return 0;
+                    }
+                    int count = 0;
+                    for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.selectedMarkers) {
+                        if (marker.circleRadius > 0) {
+                            marker.circleRadius = 0;
+                            count++;
+                        }
+                    }
+                    if (count == 0) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.circle.none_had_circle"));
+                        return 0;
+                    }
+                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.circle.removed", count));
+                    return 1;
+                }));
 
         // ── overlay ──────────────────────────────────────────────────────────
         root.then(new OverlayCommands(overlayStorage).build());
@@ -367,11 +480,42 @@ public class CommandRegistry {
     }
 
     // -----------------------------------------------------------------------
+    // moveAllTempMarkers helper
+    // -----------------------------------------------------------------------
+
+    private int moveAllTempMarkers(FabricClientCommandSource source, double dx, double dy, double dz, double radius) {
+        ClientPlayerEntity player = source.getPlayer();
+        Vec3d playerPos = player != null ? new Vec3d(player.getX(), player.getY(), player.getZ()) : null;
+
+        int movedCount = 0;
+        for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+            String origin = BoshysBTEUtils.markerOrigins.get(marker);
+            // Only move cache (unsaved) markers
+            if (origin != null && !origin.equals("autosave") && !origin.startsWith("autosave_")) {
+                continue;
+            }
+            // Apply optional radius filter centred on the player
+            if (radius >= 0 && playerPos != null && marker.position.distanceTo(playerPos) > radius) {
+                continue;
+            }
+            marker.position = marker.position.add(dx, dy, dz);
+            movedCount++;
+        }
+
+        if (movedCount == 0) {
+            source.sendFeedback(Text.translatable("command.boshysbteutils.error.no_cache_markers"));
+            return 0;
+        }
+
+        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.temp_moved", movedCount, dx, dy, dz));
+        return 1;
+    }
+
+    // -----------------------------------------------------------------------
     // importMultipleKMLs builder — extracted to keep nesting manageable
     // -----------------------------------------------------------------------
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildImportMultipleKmls() {
-        // Build from innermost outward so we never lose track of closing parens.
         var file10 = ClientCommandManager.argument("file10", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 10));

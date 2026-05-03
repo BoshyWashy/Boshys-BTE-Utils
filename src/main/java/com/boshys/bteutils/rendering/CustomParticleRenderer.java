@@ -15,6 +15,8 @@ import java.awt.Color;
 
 public class CustomParticleRenderer {
 
+    private static final int CIRCLE_SEGMENTS = 64;
+
     public static void render(WorldRenderContext context) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) return;
 
@@ -32,9 +34,9 @@ public class CustomParticleRenderer {
             renderConnections(context, matrices, cameraPos);
         }
 
-        // Render markers
+        // Render markers and their optional circles
         if (!BoshysBTEUtils.markers.isEmpty()) {
-            renderMarkers(context, matrices, cameraPos);
+            renderMarkersAndCircles(context, matrices, cameraPos);
         }
 
         matrices.pop();
@@ -139,7 +141,7 @@ public class CustomParticleRenderer {
         }
     }
 
-    private static void renderMarkers(WorldRenderContext context, MatrixStack matrices, Vec3d cameraPos) {
+    private static void renderMarkersAndCircles(WorldRenderContext context, MatrixStack matrices, Vec3d cameraPos) {
         for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
             double distSq = marker.position.squaredDistanceTo(cameraPos);
             if (distSq > 1024 * 1024) continue;
@@ -183,6 +185,49 @@ public class CustomParticleRenderer {
             }
 
             matrices.pop();
+
+            // Render the optional circle (drawn in world-space to follow the marker position)
+            if (marker.circleRadius > 0) {
+                Color circleColor = new Color(marker.colour);
+                float cr = circleColor.getRed() / 255f;
+                float cg = circleColor.getGreen() / 255f;
+                float cb = circleColor.getBlue() / 255f;
+                float ca = Math.min(1.0f, marker.opacity + 0.2f); // slightly brighter than marker
+                renderCircle(consumers, matrices, x, y, z, marker.circleRadius, cr, cg, cb, ca);
+            }
+        }
+    }
+
+    /**
+     * Renders a horizontal circle (on the XZ plane) centred at (cx, cy, cz) relative to camera.
+     */
+    private static void renderCircle(VertexConsumerProvider consumers, MatrixStack matrices,
+                                     double cx, double cy, double cz,
+                                     double radius, float r, float g, float b, float a) {
+        VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
+        MatrixStack.Entry entry = matrices.peek();
+
+        for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
+            double angle1 = (Math.PI * 2 * i) / CIRCLE_SEGMENTS;
+            double angle2 = (Math.PI * 2 * (i + 1)) / CIRCLE_SEGMENTS;
+
+            float x1 = (float)(cx + Math.cos(angle1) * radius);
+            float z1 = (float)(cz + Math.sin(angle1) * radius);
+            float x2 = (float)(cx + Math.cos(angle2) * radius);
+            float z2 = (float)(cz + Math.sin(angle2) * radius);
+            float fy = (float) cy;
+
+            buffer.vertex(entry.getPositionMatrix(), x1, fy, z1)
+                    .color(r, g, b, a)
+                    .normal(entry, 0f, 1f, 0f)
+                    .overlay(0)
+                    .light(15728880);
+
+            buffer.vertex(entry.getPositionMatrix(), x2, fy, z2)
+                    .color(r, g, b, a)
+                    .normal(entry, 0f, 1f, 0f)
+                    .overlay(0)
+                    .light(15728880);
         }
     }
 
