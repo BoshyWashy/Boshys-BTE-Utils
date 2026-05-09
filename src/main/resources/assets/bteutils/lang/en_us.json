@@ -307,5 +307,6 @@
   "command.boshysbteutils.circle.none_had_circle": "§cNone of the selected markers had a circle to remove!",
   "command.boshysbteutils.circle.removed": "§aRemoved circle from §f%d§a marker(s)!",
   "command.boshysbteutils.marker.temp_moved": "§aMoved §f%d§a temporary marker(s) by (§f%.2f§a, §f%.2f§a, §f%.2f§a)!",
-  "command.boshysbteutils.file.location": "§aMarker files location: §f%s"
+  "command.boshysbteutils.file.location.opened": "§aOpened marker folder: §f%s",
+  "command.boshysbteutils.file.location.failed": "§cCould not open folder. Location: §f%s"
 } 

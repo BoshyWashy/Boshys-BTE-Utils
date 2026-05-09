@@ -188,12 +188,13 @@ public class CustomParticleRenderer {
 
             // Render the optional circle (drawn in world-space to follow the marker position)
             if (marker.circleRadius > 0) {
-                Color circleColor = new Color(marker.colour);
+                Color circleColor = new Color(BoshysBTEUtils.getConfig().lineColour);
                 float cr = circleColor.getRed() / 255f;
                 float cg = circleColor.getGreen() / 255f;
                 float cb = circleColor.getBlue() / 255f;
-                float ca = Math.min(1.0f, marker.opacity + 0.2f); // slightly brighter than marker
-                renderCircle(consumers, matrices, x, y, z, marker.circleRadius, cr, cg, cb, ca);
+                float ca = BoshysBTEUtils.getConfig().lineOpacity;
+                float lineThickness = BoshysBTEUtils.getConfig().lineThickness;
+                renderCircle(consumers, matrices, x, y, z, marker.circleRadius, cr, cg, cb, ca, lineThickness);
             }
         }
     }
@@ -203,31 +204,80 @@ public class CustomParticleRenderer {
      */
     private static void renderCircle(VertexConsumerProvider consumers, MatrixStack matrices,
                                      double cx, double cy, double cz,
-                                     double radius, float r, float g, float b, float a) {
-        VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
+                                     double radius, float r, float g, float b, float a, float thickness) {
+        // Use debug quads for thick lines, or lines layer for thin
         MatrixStack.Entry entry = matrices.peek();
+        float halfThick = thickness * 0.05f;
 
-        for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
-            double angle1 = (Math.PI * 2 * i) / CIRCLE_SEGMENTS;
-            double angle2 = (Math.PI * 2 * (i + 1)) / CIRCLE_SEGMENTS;
+        if (halfThick < 0.005f) {
+            // Too thin for quads, fall back to line layer
+            VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
+            for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
+                double angle1 = (Math.PI * 2 * i) / CIRCLE_SEGMENTS;
+                double angle2 = (Math.PI * 2 * (i + 1)) / CIRCLE_SEGMENTS;
 
-            float x1 = (float)(cx + Math.cos(angle1) * radius);
-            float z1 = (float)(cz + Math.sin(angle1) * radius);
-            float x2 = (float)(cx + Math.cos(angle2) * radius);
-            float z2 = (float)(cz + Math.sin(angle2) * radius);
-            float fy = (float) cy;
+                float x1 = (float)(cx + Math.cos(angle1) * radius);
+                float z1 = (float)(cz + Math.sin(angle1) * radius);
+                float x2 = (float)(cx + Math.cos(angle2) * radius);
+                float z2 = (float)(cz + Math.sin(angle2) * radius);
+                float fy = (float) cy;
 
-            buffer.vertex(entry.getPositionMatrix(), x1, fy, z1)
-                    .color(r, g, b, a)
-                    .normal(entry, 0f, 1f, 0f)
-                    .overlay(0)
-                    .light(15728880);
+                buffer.vertex(entry.getPositionMatrix(), x1, fy, z1)
+                        .color(r, g, b, a)
+                        .normal(entry, 0f, 1f, 0f)
+                        .overlay(0)
+                        .light(15728880);
 
-            buffer.vertex(entry.getPositionMatrix(), x2, fy, z2)
-                    .color(r, g, b, a)
-                    .normal(entry, 0f, 1f, 0f)
-                    .overlay(0)
-                    .light(15728880);
+                buffer.vertex(entry.getPositionMatrix(), x2, fy, z2)
+                        .color(r, g, b, a)
+                        .normal(entry, 0f, 1f, 0f)
+                        .overlay(0)
+                        .light(15728880);
+            }
+        } else {
+            // Draw thick segments as small quads
+            VertexConsumer buffer = consumers.getBuffer(RenderLayer.getDebugQuads());
+            for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
+                double angle1 = (Math.PI * 2 * i) / CIRCLE_SEGMENTS;
+                double angle2 = (Math.PI * 2 * (i + 1)) / CIRCLE_SEGMENTS;
+
+                float x1 = (float)(cx + Math.cos(angle1) * radius);
+                float z1 = (float)(cz + Math.sin(angle1) * radius);
+                float x2 = (float)(cx + Math.cos(angle2) * radius);
+                float z2 = (float)(cz + Math.sin(angle2) * radius);
+                float fy = (float) cy;
+
+                // Direction of segment
+                float dx = x2 - x1;
+                float dz = z2 - z1;
+                float len = (float)Math.sqrt(dx * dx + dz * dz);
+                if (len == 0) continue;
+                dx /= len;
+                dz /= len;
+
+                // Perpendicular offset
+                float px = -dz * halfThick;
+                float pz = dx * halfThick;
+
+                // Quad for this segment
+                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy - halfThick, z1 + pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+                buffer.vertex(entry.getPositionMatrix(), x2 + px, fy - halfThick, z2 + pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+                buffer.vertex(entry.getPositionMatrix(), x2 + px, fy + halfThick, z2 + pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy + halfThick, z1 + pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+
+                buffer.vertex(entry.getPositionMatrix(), x1 - px, fy - halfThick, z1 - pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy - halfThick, z1 + pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy + halfThick, z1 + pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+                buffer.vertex(entry.getPositionMatrix(), x1 - px, fy + halfThick, z1 - pz)
+                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+            }
         }
     }
 

@@ -402,15 +402,40 @@ public class CommandRegistry {
                     if (!dir.exists()) {
                         dir.mkdirs();
                     }
-                    context.getSource().sendFeedback(Text.translatable(
-                            "command.boshysbteutils.file.location", savePath.toAbsolutePath().toString()));
-                    // Try to open the folder in the OS file manager
+                    // Open the folder in the OS file manager
+                    boolean opened = false;
                     try {
                         if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
                             Desktop.getDesktop().open(dir);
+                            opened = true;
                         }
                     } catch (IOException | UnsupportedOperationException ignored) {
-                        // Silently ignore if the desktop API is unavailable (e.g. headless)
+                        // Desktop API unavailable, will try fallback
+                    }
+                    // Fallback: try to reveal the folder using OS-specific commands
+                    if (!opened) {
+                        String os = System.getProperty("os.name").toLowerCase();
+                        try {
+                            if (os.contains("win")) {
+                                Runtime.getRuntime().exec("explorer.exe \"" + dir.getAbsolutePath() + "\"");
+                                opened = true;
+                            } else if (os.contains("mac")) {
+                                Runtime.getRuntime().exec(new String[]{"open", dir.getAbsolutePath()});
+                                opened = true;
+                            } else {
+                                Runtime.getRuntime().exec(new String[]{"xdg-open", dir.getAbsolutePath()});
+                                opened = true;
+                            }
+                        } catch (IOException ignored) {
+                            // Fallback also failed
+                        }
+                    }
+                    if (opened) {
+                        context.getSource().sendFeedback(Text.translatable(
+                                "command.boshysbteutils.file.location.opened", savePath.toAbsolutePath().toString()));
+                    } else {
+                        context.getSource().sendFeedback(Text.translatable(
+                                "command.boshysbteutils.file.location.failed", savePath.toAbsolutePath().toString()));
                     }
                     return 1;
                 }));
