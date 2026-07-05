@@ -816,6 +816,7 @@ public class MarkerStorage {
         }
     }
 
+    // FIXED: mergeMarkerFiles now properly removes old markers, cleans origins, and deletes old files
     public int mergeMarkerFiles(FabricClientCommandSource source, String mergedFileName, boolean includeCached, List<String> filenames) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
             source.sendFeedback(Text.literal("§cMarkers disabled in config!"));
@@ -846,8 +847,12 @@ public class MarkerStorage {
         List<MarkerData.SavedConnectionData> allConnections = new ArrayList<>();
         int baseIndex = 0;
 
-        Map<Integer, String> markerIndexToSourceFile = new HashMap<>();
-        Map<Integer, Vec3d> markerIndexToOriginalPos = new HashMap<>();
+        // Track which source markers need to be removed from the world after merge
+        Set<MarkerData.TeleportMarker> markersToRemove = new HashSet<>();
+        // Track which cache markers need to be removed
+        Set<MarkerData.TeleportMarker> cacheMarkersToRemove = new HashSet<>();
+        // Track cache markers for connection preservation
+        List<MarkerData.TeleportMarker> cacheMarkersInOrder = new ArrayList<>();
 
         for (String filename : filenames) {
             String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
@@ -856,34 +861,21 @@ public class MarkerStorage {
             try (FileReader reader = new FileReader(file)) {
                 MarkerData.SavedMarkerFile fileData = GSON.fromJson(reader, MarkerData.SavedMarkerFile.class);
                 if (fileData != null && fileData.markers != null) {
-                    Map<String, MarkerData.TeleportMarker> currentFileMarkers = new HashMap<>();
+                    // Find all markers currently in-world that belong to this source file
                     for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                         String origin = BoshysBTEUtils.markerOrigins.get(marker);
                         if (cleanFilename.equals(origin)) {
-                            Vec3d originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
-                            if (originalPos != null) {
-                                currentFileMarkers.put(posKey(originalPos), marker);
-                            }
+                            markersToRemove.add(marker);
                         }
                     }
 
                     for (int i = 0; i < fileData.markers.size(); i++) {
                         MarkerData.SavedMarkerData data = fileData.markers.get(i);
-                        String dataPosKey = posKey(data.x, data.y, data.z);
-
-                        MarkerData.TeleportMarker currentMarker = currentFileMarkers.get(dataPosKey);
-                        if (currentMarker != null) {
-                            allMarkers.add(new MarkerData.SavedMarkerData(
-                                    currentMarker.position.x, currentMarker.position.y, currentMarker.position.z,
-                                    currentMarker.colour, currentMarker.scale, currentMarker.opacity
-                            ));
-                            markerIndexToSourceFile.put(baseIndex + i, mergedFileName);
-                            markerIndexToOriginalPos.put(baseIndex + i, new Vec3d(currentMarker.position.x, currentMarker.position.y, currentMarker.position.z));
-                        } else {
-                            allMarkers.add(data);
-                            markerIndexToSourceFile.put(baseIndex + i, mergedFileName);
-                            markerIndexToOriginalPos.put(baseIndex + i, new Vec3d(data.x, data.y, data.z));
-                        }
+                        allMarkers.add(new MarkerData.SavedMarkerData(
+                                data.x, data.y, data.z,
+                                data.colour, data.scale, data.opacity,
+                                data.circleRadius
+                        ));
                     }
 
                     if (fileData.connections != null) {
@@ -903,19 +895,65 @@ public class MarkerStorage {
             }
         }
 
+        // CRITICAL FIX: Preserve connections between cache markers and between cache markers and file markers
         if (includeCached) {
+            // Collect all cache markers that will be included
             for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                 String origin = BoshysBTEUtils.markerOrigins.get(marker);
                 if (origin == null || origin.equals("autosave") || origin.startsWith("autosave_")) {
-                    allMarkers.add(new MarkerData.SavedMarkerData(
-                            marker.position.x, marker.position.y, marker.position.z,
-                            marker.colour, marker.scale, marker.opacity
-                    ));
-                    markerIndexToSourceFile.put(baseIndex, mergedFileName);
-                    markerIndexToOriginalPos.put(baseIndex, new Vec3d(marker.position.x, marker.position.y, marker.position.z));
-                    baseIndex++;
+                    cacheMarkersInOrder.add(marker);
                 }
             }
+
+            // Add cache markers to the merged list
+            int cacheBaseIndex = baseIndex;
+            for (MarkerData.TeleportMarker marker : cacheMarkersInOrder) {
+                allMarkers.add(new MarkerData.SavedMarkerData(
+                        marker.position.x, marker.position.y, marker.position.z,
+                        marker.colour, marker.scale, marker.opacity,
+                        marker.circleRadius
+                ));
+                cacheMarkersToRemove.add(marker);
+            }
+
+            // CRITICAL FIX: Preserve connections among all markers being merged (file + cache)
+            // Build a unified index map for connection remapping
+            List<MarkerData.TeleportMarker> allMarkersInOrder = new ArrayList<>();
+
+            // Add file markers first (in order of files)
+            for (String filename : filenames) {
+                String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
+                for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+                    String origin = BoshysBTEUtils.markerOrigins.get(marker);
+                    if (cleanFilename.equals(origin)) {
+                        allMarkersInOrder.add(marker);
+                    }
+                }
+            }
+            // Add cache markers
+            allMarkersInOrder.addAll(cacheMarkersInOrder);
+
+            // Build index map
+            Map<MarkerData.TeleportMarker, Integer> unifiedIndexMap = new HashMap<>();
+            for (int i = 0; i < allMarkersInOrder.size(); i++) {
+                unifiedIndexMap.put(allMarkersInOrder.get(i), i);
+            }
+
+            // CRITICAL FIX: Remap all existing connections into the unified index space
+            Set<String> addedConnections = new HashSet<>();
+            for (MarkerData.MarkerConnection conn : BoshysBTEUtils.markerConnections) {
+                Integer idx1 = unifiedIndexMap.get(conn.marker1);
+                Integer idx2 = unifiedIndexMap.get(conn.marker2);
+                if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
+                    String connKey = Math.min(idx1, idx2) + ":" + Math.max(idx1, idx2);
+                    if (!addedConnections.contains(connKey)) {
+                        allConnections.add(new MarkerData.SavedConnectionData(idx1, idx2));
+                        addedConnections.add(connKey);
+                    }
+                }
+            }
+
+            baseIndex += cacheMarkersInOrder.size();
         }
 
         if (allMarkers.isEmpty()) {
@@ -926,81 +964,116 @@ public class MarkerStorage {
         MarkerData.SavedMarkerFile mergedData = new MarkerData.SavedMarkerFile(mergedFileName, System.currentTimeMillis(), allMarkers, allConnections);
         File mergedFile = getMarkersSavePath().resolve(mergedFileName + ".json").toFile();
 
+        // Write merged file BEFORE modifying world state (so we can rollback if save fails)
         try (FileWriter writer = new FileWriter(mergedFile)) {
             GSON.toJson(mergedData, writer);
             writer.flush();
-
-            hiddenFiles.remove(mergedFileName);
-
-            for (String filename : filenames) {
-                String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
-                if (loadedFiles.containsKey(cleanFilename)) {
-                    loadedFiles.remove(cleanFilename);
-                    modifiedLoadedFiles.remove(cleanFilename);
-                    // CRITICAL FIX: Clean up file ID tracking
-                    fileMarkerIndexMap.remove(cleanFilename);
-                }
-            }
-
-            int loadedCount = 0;
-            List<MarkerData.TeleportMarker> loadedMarkers = new ArrayList<>();
-
-            // CRITICAL FIX: Set up persistent ID tracking for merged file
-            Map<Integer, MarkerData.TeleportMarker> mergedIndexMap = new HashMap<>();
-
-            for (int i = 0; i < mergedData.markers.size(); i++) {
-                MarkerData.SavedMarkerData data = mergedData.markers.get(i);
-                MarkerData.TeleportMarker marker = new MarkerData.TeleportMarker(
-                        new Vec3d(data.x, data.y, data.z),
-                        data.colour, data.scale, data.opacity
-                );
-                BoshysBTEUtils.markers.add(marker);
-                loadedMarkers.add(marker);
-                loadedCount++;
-
-                BoshysBTEUtils.markerOrigins.put(marker, mergedFileName);
-                BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3d(data.x, data.y, data.z));
-                // CRITICAL FIX: Set up persistent ID tracking
-                mergedIndexMap.put(i, marker);
-                markerToFileId.put(marker, new FileMarkerId(mergedFileName, i));
-            }
-
-            // Store the index map for the merged file
-            fileMarkerIndexMap.put(mergedFileName, mergedIndexMap);
-
-            int loadedConnections = 0;
-            if (mergedData.connections != null) {
-                for (MarkerData.SavedConnectionData connData : mergedData.connections) {
-                    if (connData.fromIndex >= 0 && connData.fromIndex < loadedMarkers.size() &&
-                            connData.toIndex >= 0 && connData.toIndex < loadedMarkers.size()) {
-                        MarkerData.connectMarkers(loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex));
-                        loadedConnections++;
-                    }
-                }
-            }
-
-            loadedFiles.put(mergedFileName, mergedData);
-            modifiedLoadedFiles.remove(mergedFileName);
-
-            Text message = Text.literal("§aMerged " + allMarkers.size() + " markers")
-                    .append(allConnections.size() > 0 ? Text.literal(" with " + allConnections.size() + " connections") : Text.literal(""))
-                    .append(Text.literal(" into '"))
-                    .append(Text.literal(mergedFileName).styled(style -> style.withBold(true)))
-                    .append(Text.literal("' and loaded!"))
-                    .styled(style -> style
-                            .withClickEvent(new ClickEvent.OpenFile(mergedFile.getParentFile().getAbsolutePath()))
-                            .withHoverEvent(new HoverEvent.ShowText(Text.literal("§eClick to open folder")))
-                    );
-
-            source.sendFeedback(message);
-            return 1;
         } catch (IOException e) {
             source.sendFeedback(Text.literal("§cFailed to save merged file: " + e.getMessage()));
             return 0;
         }
-    }
 
-    // FIXED: moveSelectedMarkers now properly updates persistent ID tracking
+        // === SAVE SUCCESSFUL — now clean up old state ===
+
+        hiddenFiles.remove(mergedFileName);
+
+        // Remove old source file markers from the world
+        for (MarkerData.TeleportMarker marker : markersToRemove) {
+            BoshysBTEUtils.markers.remove(marker);
+            BoshysBTEUtils.markerOrigins.remove(marker);
+            BoshysBTEUtils.markerOriginalPositions.remove(marker);
+            markerToFileId.remove(marker);
+        }
+
+        // Remove cache markers that were included in merge
+        for (MarkerData.TeleportMarker marker : cacheMarkersToRemove) {
+            BoshysBTEUtils.markers.remove(marker);
+            BoshysBTEUtils.markerOrigins.remove(marker);
+            BoshysBTEUtils.markerOriginalPositions.remove(marker);
+            markerToFileId.remove(marker);
+        }
+
+        // Clean up connections that involved removed markers
+        BoshysBTEUtils.markerConnections.removeIf(conn ->
+                !BoshysBTEUtils.markers.contains(conn.marker1) || !BoshysBTEUtils.markers.contains(conn.marker2));
+        BoshysBTEUtils.selectedMarkers.removeIf(marker -> !BoshysBTEUtils.markers.contains(marker));
+        if (BoshysBTEUtils.lastAddedMarker != null && !BoshysBTEUtils.markers.contains(BoshysBTEUtils.lastAddedMarker)) {
+            BoshysBTEUtils.lastAddedMarker = null;
+        }
+
+        // CRITICAL FIX: Remove old files from loaded state and tracking
+        // BUT skip the merged file name to avoid deleting the file we just created
+        for (String filename : filenames) {
+            String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
+
+            // CRITICAL FIX: Don't delete the merged file if it shares a name with a source file
+            if (cleanFilename.equals(mergedFileName)) {
+                continue;
+            }
+
+            loadedFiles.remove(cleanFilename);
+            modifiedLoadedFiles.remove(cleanFilename);
+            fileMarkerIndexMap.remove(cleanFilename);
+            hiddenFiles.remove(cleanFilename);
+
+            // Delete the old source file from disk (only after successful merge)
+            File oldFile = getMarkersSavePath().resolve(cleanFilename + ".json").toFile();
+            if (oldFile.exists()) {
+                oldFile.delete();
+            }
+        }
+
+        // Load the merged file
+        int loadedCount = 0;
+        List<MarkerData.TeleportMarker> loadedMarkers = new ArrayList<>();
+        Map<Integer, MarkerData.TeleportMarker> mergedIndexMap = new HashMap<>();
+
+        for (int i = 0; i < mergedData.markers.size(); i++) {
+            MarkerData.SavedMarkerData data = mergedData.markers.get(i);
+            MarkerData.TeleportMarker marker = new MarkerData.TeleportMarker(
+                    new Vec3d(data.x, data.y, data.z),
+                    data.colour, data.scale, data.opacity
+            );
+            marker.circleRadius = data.circleRadius;
+            BoshysBTEUtils.markers.add(marker);
+            loadedMarkers.add(marker);
+            loadedCount++;
+
+            BoshysBTEUtils.markerOrigins.put(marker, mergedFileName);
+            BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3d(data.x, data.y, data.z));
+            mergedIndexMap.put(i, marker);
+            markerToFileId.put(marker, new FileMarkerId(mergedFileName, i));
+        }
+
+        fileMarkerIndexMap.put(mergedFileName, mergedIndexMap);
+
+        int loadedConnections = 0;
+        if (mergedData.connections != null) {
+            for (MarkerData.SavedConnectionData connData : mergedData.connections) {
+                if (connData.fromIndex >= 0 && connData.fromIndex < loadedMarkers.size() &&
+                        connData.toIndex >= 0 && connData.toIndex < loadedMarkers.size()) {
+                    MarkerData.connectMarkers(loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex));
+                    loadedConnections++;
+                }
+            }
+        }
+
+        loadedFiles.put(mergedFileName, mergedData);
+        modifiedLoadedFiles.remove(mergedFileName);
+
+        Text message = Text.literal("§aMerged " + allMarkers.size() + " markers")
+                .append(allConnections.size() > 0 ? Text.literal(" with " + allConnections.size() + " connections") : Text.literal(""))
+                .append(Text.literal(" into '"))
+                .append(Text.literal(mergedFileName).styled(style -> style.withBold(true)))
+                .append(Text.literal("' and loaded!"))
+                .styled(style -> style
+                        .withClickEvent(new ClickEvent.OpenFile(mergedFile.getParentFile().getAbsolutePath()))
+                        .withHoverEvent(new HoverEvent.ShowText(Text.literal("§eClick to open folder")))
+                );
+
+        source.sendFeedback(message);
+        return 1;
+    }
     public int moveSelectedMarkers(FabricClientCommandSource source, double dx, double dy, double dz) {
         if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
             source.sendFeedback(Text.literal("§cNo markers selected!"));

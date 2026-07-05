@@ -15,8 +15,6 @@ import java.awt.Color;
 
 public class CustomParticleRenderer {
 
-    private static final int CIRCLE_SEGMENTS = 64;
-
     public static void render(WorldRenderContext context) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) return;
 
@@ -186,98 +184,47 @@ public class CustomParticleRenderer {
 
             matrices.pop();
 
-            // Render the optional circle (drawn in world-space to follow the marker position)
+            // Render the optional circle using thick line segments
             if (marker.circleRadius > 0) {
+                VertexConsumer lineBuffer = consumers.getBuffer(RenderLayer.getLines());
                 Color circleColor = new Color(BoshysBTEUtils.getConfig().lineColour);
                 float cr = circleColor.getRed() / 255f;
                 float cg = circleColor.getGreen() / 255f;
                 float cb = circleColor.getBlue() / 255f;
                 float ca = BoshysBTEUtils.getConfig().lineOpacity;
-                float lineThickness = BoshysBTEUtils.getConfig().lineThickness;
-                renderCircle(consumers, matrices, x, y, z, marker.circleRadius, cr, cg, cb, ca, lineThickness);
+                float circleThickness = BoshysBTEUtils.getConfig().circleThickness;
+                float segmentPercent = BoshysBTEUtils.getConfig().circleSegmentPercent;
+                renderCircleAsLines(lineBuffer, matrices, x, y, z, marker.circleRadius,
+                        cr, cg, cb, ca, circleThickness, segmentPercent);
             }
         }
     }
 
     /**
-     * Renders a horizontal circle (on the XZ plane) centred at (cx, cy, cz) relative to camera.
+     * Renders a horizontal circle as a chain of thick line segments around the circumference.
+     * Each line segment covers {@code segmentPercent}% of the total circumference.
+     * Uses the same thick-line rendering as marker connections.
+     *
+     * @param segmentPercent size of each segment as a percentage of circumference
+     *                       (e.g. 1.0 = 1% -> 100 segments, 10.0 = 10% -> 10 segments)
      */
-    private static void renderCircle(VertexConsumerProvider consumers, MatrixStack matrices,
-                                     double cx, double cy, double cz,
-                                     double radius, float r, float g, float b, float a, float thickness) {
-        // Use debug quads for thick lines, or lines layer for thin
-        MatrixStack.Entry entry = matrices.peek();
-        float halfThick = thickness * 0.05f;
+    private static void renderCircleAsLines(VertexConsumer buffer, MatrixStack matrices,
+                                            double cx, double cy, double cz,
+                                            double radius, float r, float g, float b, float a,
+                                            float thickness, float segmentPercent) {
+        // Number of segments = 100 / segmentPercent
+        int segments = Math.max(3, Math.min(1000, (int) Math.round(100.0 / segmentPercent)));
 
-        if (halfThick < 0.005f) {
-            // Too thin for quads, fall back to line layer
-            VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
-            for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
-                double angle1 = (Math.PI * 2 * i) / CIRCLE_SEGMENTS;
-                double angle2 = (Math.PI * 2 * (i + 1)) / CIRCLE_SEGMENTS;
+        for (int i = 0; i < segments; i++) {
+            double angle1 = (Math.PI * 2 * i) / segments;
+            double angle2 = (Math.PI * 2 * (i + 1)) / segments;
 
-                float x1 = (float)(cx + Math.cos(angle1) * radius);
-                float z1 = (float)(cz + Math.sin(angle1) * radius);
-                float x2 = (float)(cx + Math.cos(angle2) * radius);
-                float z2 = (float)(cz + Math.sin(angle2) * radius);
-                float fy = (float) cy;
+            double x1 = cx + Math.cos(angle1) * radius;
+            double z1 = cz + Math.sin(angle1) * radius;
+            double x2 = cx + Math.cos(angle2) * radius;
+            double z2 = cz + Math.sin(angle2) * radius;
 
-                buffer.vertex(entry.getPositionMatrix(), x1, fy, z1)
-                        .color(r, g, b, a)
-                        .normal(entry, 0f, 1f, 0f)
-                        .overlay(0)
-                        .light(15728880);
-
-                buffer.vertex(entry.getPositionMatrix(), x2, fy, z2)
-                        .color(r, g, b, a)
-                        .normal(entry, 0f, 1f, 0f)
-                        .overlay(0)
-                        .light(15728880);
-            }
-        } else {
-            // Draw thick segments as small quads
-            VertexConsumer buffer = consumers.getBuffer(RenderLayer.getDebugQuads());
-            for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
-                double angle1 = (Math.PI * 2 * i) / CIRCLE_SEGMENTS;
-                double angle2 = (Math.PI * 2 * (i + 1)) / CIRCLE_SEGMENTS;
-
-                float x1 = (float)(cx + Math.cos(angle1) * radius);
-                float z1 = (float)(cz + Math.sin(angle1) * radius);
-                float x2 = (float)(cx + Math.cos(angle2) * radius);
-                float z2 = (float)(cz + Math.sin(angle2) * radius);
-                float fy = (float) cy;
-
-                // Direction of segment
-                float dx = x2 - x1;
-                float dz = z2 - z1;
-                float len = (float)Math.sqrt(dx * dx + dz * dz);
-                if (len == 0) continue;
-                dx /= len;
-                dz /= len;
-
-                // Perpendicular offset
-                float px = -dz * halfThick;
-                float pz = dx * halfThick;
-
-                // Quad for this segment
-                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy - halfThick, z1 + pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-                buffer.vertex(entry.getPositionMatrix(), x2 + px, fy - halfThick, z2 + pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-                buffer.vertex(entry.getPositionMatrix(), x2 + px, fy + halfThick, z2 + pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy + halfThick, z1 + pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-
-                buffer.vertex(entry.getPositionMatrix(), x1 - px, fy - halfThick, z1 - pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy - halfThick, z1 + pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-                buffer.vertex(entry.getPositionMatrix(), x1 + px, fy + halfThick, z1 + pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-                buffer.vertex(entry.getPositionMatrix(), x1 - px, fy + halfThick, z1 - pz)
-                        .color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
-            }
+            drawThickLine(buffer, matrices, x1, cy, z1, x2, cy, z2, r, g, b, a, thickness);
         }
     }
 

@@ -23,8 +23,8 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public boolean enableMarkers = true;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Automatically place markers when using TPLL keybind")
-    public boolean enableAutoTpllMarkers = true;
+    @Comment("When to automatically place TPLL markers: DISABLED, KEYBIND_AND_MANUAL, KEYBIND_ONLY, or MANUAL_ONLY")
+    public TpllMarkerMode tpllMarkerMode = TpllMarkerMode.DISABLED;
 
     @ConfigEntry.Gui.Tooltip
     @Comment("Marker colour in hex format (default: 0xFF0000 = red)")
@@ -64,10 +64,23 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Line thickness/width (default: 0.1)")
     public float lineThickness = 0.1f;
 
+    // Circle Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Circle outline thickness (default: 0.5)")
+    public float circleThickness = 0.5f;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Circle segment size as % of circumference — lower = smoother (default: 1.0 = 100 segments)")
+    public float circleSegmentPercent = 1.0f;
+
     // Overlay Settings
     @ConfigEntry.Gui.Tooltip
     @Comment("Overlay image opacity (0.0 to 1.0, default: 1.0)")
     public float overlayImageOpacity = 1.0f;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Overlay render distance in chunks. -1 = use Minecraft simulation distance. 0 = unlimited (always render).")
+    public int overlayRenderDistance = -1;
 
     // Saved Markers Settings
     @ConfigEntry.Gui.Tooltip
@@ -123,6 +136,16 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public String worldEditLineBlock = "diamond_block";
 
     /**
+     * TPLL marker mode enum - controls when auto-markers are placed
+     */
+    public enum TpllMarkerMode {
+        DISABLED,            // No auto-markers from either keybind or manual commands
+        KEYBIND_AND_MANUAL,  // Both keybind and manual /tpll commands trigger markers
+        KEYBIND_ONLY,        // Only keybind triggers markers
+        MANUAL_ONLY          // Only manual /tpll commands trigger markers
+    }
+
+    /**
      * Altitude mode enum for KML imports
      */
     public enum AltitudeMode {
@@ -155,6 +178,14 @@ public class BoshysBTEUtilsConfig implements ConfigData {
         if (lineThickness < 0.1f) lineThickness = 0.1f;
         if (lineThickness > 10.0f) lineThickness = 10.0f;
 
+        // Validate circle thickness
+        if (circleThickness < 0.01f) circleThickness = 0.01f;
+        if (circleThickness > 10.0f) circleThickness = 10.0f;
+
+        // Validate circle segment percent
+        if (circleSegmentPercent < 0.1f) circleSegmentPercent = 0.1f;
+        if (circleSegmentPercent > 50.0f) circleSegmentPercent = 50.0f;
+
         // Validate clear confirmation limit
         if (clearConfirmLimit < 1) clearConfirmLimit = 1;
         if (clearConfirmLimit > 1000) clearConfirmLimit = 1000;
@@ -181,10 +212,19 @@ public class BoshysBTEUtilsConfig implements ConfigData {
             kmlAltitudeMode = AltitudeMode.AUTOMATIC;
         }
 
+        // Validate TPLL marker mode
+        if (tpllMarkerMode == null) {
+            tpllMarkerMode = TpllMarkerMode.DISABLED;
+        }
+
         // Validate WorldEdit line block
         if (worldEditLineBlock == null || worldEditLineBlock.trim().isEmpty()) {
             worldEditLineBlock = "diamond_block";
         }
         worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\s+", "_");
+
+        // Validate overlay render distance (-1 = simulation distance, 0 = unlimited, max 64 chunks)
+        if (overlayRenderDistance < -1) overlayRenderDistance = -1;
+        if (overlayRenderDistance > 64) overlayRenderDistance = 64;
     }
 }

@@ -155,7 +155,15 @@ public class MarkerData {
     }
 
     public static void handleAutoConnect(TeleportMarker newMarker) {
-        if (BoshysBTEUtils.lastAddedMarker != null && BoshysBTEUtils.lastAddedMarker != newMarker) {
+        // NEW: Connect to selected marker(s) if any, otherwise connect to last added
+        if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
+            // Connect the new marker to ALL currently selected markers
+            for (MarkerData.TeleportMarker selected : BoshysBTEUtils.selectedMarkers) {
+                if (selected != newMarker) {
+                    connectMarkers(selected, newMarker);
+                }
+            }
+        } else if (BoshysBTEUtils.lastAddedMarker != null && BoshysBTEUtils.lastAddedMarker != newMarker) {
             connectMarkers(BoshysBTEUtils.lastAddedMarker, newMarker);
         }
         BoshysBTEUtils.selectedMarkers.clear();

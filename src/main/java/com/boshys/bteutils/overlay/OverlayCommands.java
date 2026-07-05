@@ -7,6 +7,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.text.Text;
@@ -69,6 +70,7 @@ public class OverlayCommands {
                 .then(buildNew())
                 .then(buildLoad())
                 .then(buildHide())
+                .then(buildTempHide())
                 .then(buildMoveToPlayer())
                 .then(buildDisplace())
                 .then(buildRotate())
@@ -80,6 +82,52 @@ public class OverlayCommands {
                 .then(buildResetCorners())
                 .then(buildToggleMarkers())
                 .then(buildOpacity());
+    }
+
+
+    // ------------------------------------------------------------------
+    // Temporarily hide/show overlays (like marker tempHide)
+    // ------------------------------------------------------------------
+    private LiteralArgumentBuilder<FabricClientCommandSource> buildTempHide() {
+        return ClientCommandManager.literal("tempHide")
+                .then(ClientCommandManager.argument("hide", BoolArgumentType.bool())
+                        .executes(ctx -> {
+                            boolean shouldHide = BoolArgumentType.getBool(ctx, "hide");
+                            if (shouldHide) {
+                                if (storage.getTempHiddenOverlays().containsAll(storage.getLoadedOverlays().keySet())
+                                        && !storage.getLoadedOverlays().isEmpty()) {
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.temphide.already_hidden_all"));
+                                    return 0;
+                                }
+                                int count = storage.tempHideAll();
+                                if (count > 0) {
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.temphide.hidden", count));
+                                    return 1;
+                                } else {
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.temphide.none_visible"));
+                                    return 0;
+                                }
+                            } else {
+                                if (storage.getTempHiddenOverlays().isEmpty()) {
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.temphide.already_shown"));
+                                    return 0;
+                                }
+                                int count = storage.tempShowAll();
+                                if (count > 0) {
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.temphide.shown", count));
+                                    return 1;
+                                } else {
+                                    ctx.getSource().sendFeedback(Text.translatable(
+                                            "command.boshysbteutils.overlay.temphide.none_hidden"));
+                                    return 0;
+                                }
+                            }
+                        }));
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildNew() {

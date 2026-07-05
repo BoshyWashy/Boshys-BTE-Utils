@@ -4,7 +4,10 @@
   "package": "com.boshys.bteutils.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "ClientPlayNetworkHandlerMixin"
+    "ClientPlayNetworkHandlerMixin",
+    "ClientConnectionMixin",
+    "GameMessageMixin",
+    "MessageHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1
