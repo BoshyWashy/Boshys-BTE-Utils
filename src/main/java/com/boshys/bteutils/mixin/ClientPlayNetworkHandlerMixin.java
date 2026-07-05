@@ -16,12 +16,46 @@ import java.util.Set;
 @Mixin(ClientPlayNetworkHandler.class)
 public class ClientPlayNetworkHandlerMixin {
 
+    // Prevents double-processing when sendChatCommand calls sendPacket internally
+    private static boolean processingCommand = false;
+
+    /**
+     * Intercept commands sent via sendChatCommand BEFORE they are packetized.
+     * This is the primary interception point for manual /tpll commands.
+     * In 1.21.10, this is more reliable than packet-level interception.
+     */
+    @Inject(method = "sendChatCommand", at = @At("HEAD"), cancellable = false)
+    private void onSendChatCommand(String command, CallbackInfo ci) {
+        if (processingCommand) return;
+        // Skip if this command was sent by the keybind (keybind handles its own detection)
+        if (BoshysBTEUtils.keybindCommandBeingSent) return;
+        if (BoshysBTEUtils.INSTANCE != null) {
+            processingCommand = true;
+            try {
+                BoshysBTEUtils.INSTANCE.onCommandSent(command);
+            } finally {
+                processingCommand = false;
+            }
+        }
+    }
+
+    /**
+     * Fallback packet-level interception for commands sent directly as packets.
+     * The sendChatCommand injection above handles most cases; this catches edge cases.
+     */
     @Inject(method = "sendPacket", at = @At("HEAD"), cancellable = false)
     private void onSendPacket(net.minecraft.network.packet.Packet<?> packet, CallbackInfo ci) {
+        if (processingCommand) return;
+        if (BoshysBTEUtils.keybindCommandBeingSent) return;
         if (packet instanceof CommandExecutionC2SPacket commandPacket) {
             String command = commandPacket.command();
             if (BoshysBTEUtils.INSTANCE != null) {
-                BoshysBTEUtils.INSTANCE.onCommandSent(command);
+                processingCommand = true;
+                try {
+                    BoshysBTEUtils.INSTANCE.onCommandSent(command);
+                } finally {
+                    processingCommand = false;
+                }
             }
         }
     }

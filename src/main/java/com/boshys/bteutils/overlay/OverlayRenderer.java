@@ -9,6 +9,8 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Vec3d;
 import org.joml.Matrix4f;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class OverlayRenderer {
@@ -35,13 +37,34 @@ public class OverlayRenderer {
         Vec3d camPos = camera.getPos();
         MatrixStack matrices = context.matrices();
 
+        // Get the configured render distance in blocks (chunks * 16)
+        // -1 = use Minecraft's simulation distance (default)
+        //  0 = unlimited (always render)
+        //  1-64 = custom chunk distance
+        int renderDistanceChunks = BoshysBTEUtils.getConfig().overlayRenderDistance;
+        double cullDist;
+        if (renderDistanceChunks < 0) {
+            // Use Minecraft's simulation distance
+            cullDist = MinecraftClient.getInstance().options.getSimulationDistance().getValue() * 16.0;
+        } else if (renderDistanceChunks == 0) {
+            // Unlimited render distance
+            cullDist = Double.MAX_VALUE;
+        } else {
+            cullDist = renderDistanceChunks * 16.0;
+        }
+
         for (OverlayData.ImageOverlay overlay : overlays.values()) {
             if (!overlay.visible) continue;
+            if (storage.getTempHiddenOverlays().contains(OverlayData.toSafeFilename(overlay.displayName))) continue;
 
             Identifier texId = textureManager.getOrLoadTexture(overlay.imageFilename);
             if (texId == null) continue;
 
-            renderOverlay(consumers, matrices, camPos, overlay, texId);
+            // Render the overlay using chunk subdivision.
+            // Each sub-quad is culled individually based on its center point.
+            // No early whole-overlay culling — sub-quads near the player will render
+            // even if the overlay's anchor is far away.
+            renderOverlayChunked(consumers, matrices, camPos, overlay, texId, cullDist);
 
             if (overlay.markersVisible) {
                 renderMarkers(consumers, matrices, camPos, overlay);
@@ -49,17 +72,152 @@ public class OverlayRenderer {
         }
     }
 
-    private void renderOverlay(VertexConsumerProvider consumers, MatrixStack matrices,
-                               Vec3d camPos, OverlayData.ImageOverlay overlay, Identifier texId) {
 
-        double acx = overlay.anchor.x - camPos.x;
-        double acy = overlay.anchor.y - camPos.y;
-        double acz = overlay.anchor.z - camPos.z;
-        double cullDist = 512.0;
-        if (acx * acx + acy * acy + acz * acz > cullDist * cullDist) return;
 
-        float[] u = { 0f, 1f, 1f, 0f };
-        float[] v = overlay.flipped ? new float[]{ 0f, 0f, 1f, 1f } : new float[]{ 1f, 1f, 0f, 0f };
+    /**
+     * Renders the overlay subdivided into chunk-sized pieces to prevent fog/unloading issues.
+     * Each sub-quad is rendered independently so the renderer culls individual pieces
+     * rather than the whole overlay.
+     *
+     * Culling is based on the CENTER of each sub-quad (chunk cross-section center),
+     * not the corners. This ensures a sub-quad is rendered if its center is in range,
+     * which provides smooth fading at the edges of render distance.
+     */
+    private void renderOverlayChunked(VertexConsumerProvider consumers, MatrixStack matrices,
+                                      Vec3d camPos, OverlayData.ImageOverlay overlay, Identifier texId, double cullDist) {
+
+        // Determine subdivision count based on overlay size
+        // We subdivide so that no single quad is larger than ~32 blocks
+        // This prevents the quad from being affected by chunk culling/fog
+        double maxEdgeLength = computeMaxEdgeLength(overlay);
+        int subdivisions = Math.max(1, (int) Math.ceil(maxEdgeLength / 32.0));
+
+        if (subdivisions <= 1) {
+            // Small overlay - render as single quad
+            renderOverlayQuad(consumers, matrices, camPos, overlay, texId, 0, 0, 1, 1, 0, 0, 1, 1);
+            return;
+        }
+
+        // Large overlay - subdivide into smaller quads
+        for (int i = 0; i < subdivisions; i++) {
+            for (int j = 0; j < subdivisions; j++) {
+                double u0 = (double) i / subdivisions;
+                double u1 = (double) (i + 1) / subdivisions;
+                double v0 = (double) j / subdivisions;
+                double v1 = (double) (j + 1) / subdivisions;
+
+                // Compute the 4 corners of this sub-quad by bilinear interpolation
+                Vec3d[] subCorners = new Vec3d[4];
+                subCorners[0] = bilinearInterpolate(overlay.corners, u0, v0); // NW
+                subCorners[1] = bilinearInterpolate(overlay.corners, u1, v0); // NE
+                subCorners[2] = bilinearInterpolate(overlay.corners, u1, v1); // SE
+                subCorners[3] = bilinearInterpolate(overlay.corners, u0, v1); // SW
+
+                // Cull based on the CENTER of this sub-quad (cross-section center)
+                // This is more accurate than corner-checking for large subdivided overlays
+                Vec3d subCenter = subCorners[0].lerp(subCorners[2], 0.5); // diagonal center
+                double dx = subCenter.x - camPos.x;
+                double dy = subCenter.y - camPos.y;
+                double dz = subCenter.z - camPos.z;
+                if (dx * dx + dy * dy + dz * dz > cullDist * cullDist) {
+                    continue; // Skip this sub-quad - its center is out of range
+                }
+
+                // Render this sub-quad with the appropriate UV mapping
+                renderSubQuad(consumers, matrices, camPos, subCorners, texId,
+                        (float) u0, (float) v0, (float) u1, (float) v1, overlay);
+            }
+        }
+    }
+
+    /**
+     * Computes the maximum edge length of the overlay to determine subdivision count.
+     */
+    private double computeMaxEdgeLength(OverlayData.ImageOverlay overlay) {
+        double maxLen = 0;
+        // Check the 4 edges
+        maxLen = Math.max(maxLen, overlay.corners[0].distanceTo(overlay.corners[1])); // NW-NE
+        maxLen = Math.max(maxLen, overlay.corners[1].distanceTo(overlay.corners[2])); // NE-SE
+        maxLen = Math.max(maxLen, overlay.corners[2].distanceTo(overlay.corners[3])); // SE-SW
+        maxLen = Math.max(maxLen, overlay.corners[3].distanceTo(overlay.corners[0])); // SW-NW
+        // Also check diagonals
+        maxLen = Math.max(maxLen, overlay.corners[0].distanceTo(overlay.corners[2]));
+        maxLen = Math.max(maxLen, overlay.corners[1].distanceTo(overlay.corners[3]));
+        return maxLen;
+    }
+
+    /**
+     * Bilinear interpolation on a quad. Given u,v in [0,1], computes the world position.
+     * u goes from west (0) to east (1), v goes from north (0) to south (1).
+     */
+    private Vec3d bilinearInterpolate(Vec3d[] corners, double u, double v) {
+        // corners: 0=NW, 1=NE, 2=SE, 3=SW
+        Vec3d top = corners[0].lerp(corners[1], u);      // Lerp along top edge
+        Vec3d bottom = corners[3].lerp(corners[2], u);    // Lerp along bottom edge
+        return top.lerp(bottom, v);                        // Lerp between top and bottom
+    }
+
+    /**
+     * Renders a single sub-quad of the overlay.
+     */
+    private void renderSubQuad(VertexConsumerProvider consumers, MatrixStack matrices, Vec3d camPos,
+                               Vec3d[] subCorners, Identifier texId,
+                               float u0, float v0, float u1, float v1,
+                               OverlayData.ImageOverlay overlay) {
+
+        float[] u = { u0, u1, u1, u0 };
+        float[] v = overlay.flipped ? new float[]{ v0, v0, v1, v1 } : new float[]{ v1, v1, v0, v0 };
+
+        RenderLayer layer = RenderLayer.getText(texId);
+        VertexConsumer buf = consumers.getBuffer(layer);
+
+        matrices.push();
+        MatrixStack.Entry entry = matrices.peek();
+        Matrix4f posMatrix = entry.getPositionMatrix();
+
+        int light = LightmapTextureManager.MAX_LIGHT_COORDINATE;
+        int overlayUV = OverlayTexture.DEFAULT_UV;
+        float opacity = overlay.imageOpacity;
+
+        // Top face
+        for (int i = 0; i < 4; i++) {
+            double cx = subCorners[i].x - camPos.x;
+            double cy = subCorners[i].y - camPos.y;
+            double cz = subCorners[i].z - camPos.z;
+            buf.vertex(posMatrix, (float) cx, (float) cy + 0.005f, (float) cz)
+                    .color(1f, 1f, 1f, opacity)
+                    .texture(u[i], v[i])
+                    .overlay(overlayUV)
+                    .light(light)
+                    .normal(entry, 0f, 1f, 0f);
+        }
+
+        // Bottom face
+        for (int i = 0; i < 4; i++) {
+            int idx = 3 - i;
+            double cx = subCorners[idx].x - camPos.x;
+            double cy = subCorners[idx].y - camPos.y;
+            double cz = subCorners[idx].z - camPos.z;
+            buf.vertex(posMatrix, (float) cx, (float) cy - 0.005f, (float) cz)
+                    .color(1f, 1f, 1f, opacity)
+                    .texture(u[i], v[i])
+                    .overlay(overlayUV)
+                    .light(light)
+                    .normal(entry, 0f, -1f, 0f);
+        }
+
+        matrices.pop();
+    }
+
+    /**
+     * Legacy single-quad render for small overlays.
+     */
+    private void renderOverlayQuad(VertexConsumerProvider consumers, MatrixStack matrices,
+                                   Vec3d camPos, OverlayData.ImageOverlay overlay, Identifier texId,
+                                   float u0, float v0, float u1, float v1, float uvU0, float uvV0, float uvU1, float uvV1) {
+
+        float[] u = { u0, u1, u1, u0 };
+        float[] v = overlay.flipped ? new float[]{ uvV0, uvV0, uvV1, uvV1 } : new float[]{ uvV1, uvV1, uvV0, uvV0 };
 
         RenderLayer layer = RenderLayer.getText(texId);
         VertexConsumer buf = consumers.getBuffer(layer);

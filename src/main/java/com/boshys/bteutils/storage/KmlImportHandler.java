@@ -226,6 +226,73 @@ public class KmlImportHandler {
         processNextKmlPoint(client);
     }
 
+    /**
+     * Stops any active KML import, including queued imports.
+     * Clears all import state so a new import can be started cleanly.
+     */
+    public void stopImport(MinecraftClient client) {
+        boolean wasActive = isKmlImporting || kmlImportWaitingToStart || isProcessingQueue;
+
+        // Reset all import state
+        isKmlImporting = false;
+        kmlImportWaitingToStart = false;
+        kmlImportStartDelayTicks = 0;
+        pendingKmlPoints.clear();
+        kmlCurrentPointIndex = 0;
+        currentKmlFileName = "";
+        kmlPostCommandsList.clear();
+        kmlPostCommandIndex = 0;
+        kmlWaitingForPostCommand = false;
+        kmlPostCommandTickCounter = 0;
+
+        worldEditLinesActive = false;
+        worldEditCommandIndex = 0;
+        worldEditCommandQueue.clear();
+        worldEditCommandTickCounter = 0;
+        waitingForWorldEditCommand = false;
+        worldEditSetupComplete = false;
+
+        waitingForTeleport = false;
+        positionBeforeTpll = null;
+        lastCheckedPosition = null;
+        teleportCheckTicks = 0;
+        stablePositionTicks = 0;
+
+        inWorldEditSetupPhase = false;
+        inSpectatorSetupPhase = false;
+        setupCommandIndex = 0;
+        setupCommands.clear();
+
+        cooldownTicks = 0;
+
+        kmlFileQueue.clear();
+        currentKmlFileIndex = 0;
+        isProcessingQueue = false;
+        queueDelayTicks = 0;
+        waitingBetweenFiles = false;
+
+        // Clear the import title/subtitle from screen
+        if (client != null && client.inGameHud != null) {
+            client.inGameHud.setTitle(Text.literal(""));
+            client.inGameHud.setSubtitle(Text.literal(""));
+        }
+
+        // Notify user
+        if (client != null && client.player != null) {
+            if (wasActive) {
+                client.player.sendMessage(
+                        Text.translatable("command.boshysbteutils.kml.import.stopped").formatted(net.minecraft.util.Formatting.YELLOW),
+                        false
+                );
+            } else {
+                client.player.sendMessage(
+                        Text.translatable("command.boshysbteutils.kml.import.no_active").formatted(net.minecraft.util.Formatting.RED),
+                        false
+                );
+            }
+        }
+    }
+
     private void startSpectatorSetup(MinecraftClient client) {
         inSpectatorSetupPhase = true;
         setupCommandIndex = 0;
@@ -917,7 +984,7 @@ public class KmlImportHandler {
             StringBuilder content = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
-                content.append(line).append("\\n");
+                content.append(line).append("\n");
             }
 
             String kmlContent = content.toString();
@@ -927,7 +994,7 @@ public class KmlImportHandler {
 
             while (matcher.find()) {
                 String coordBlock = matcher.group(1).trim();
-                String[] coordEntries = coordBlock.split("\\s+");
+                String[] coordEntries = coordBlock.split("\s+");
 
                 for (String entry : coordEntries) {
                     entry = entry.trim();
@@ -959,7 +1026,7 @@ public class KmlImportHandler {
 
             while (gxMatcher.find()) {
                 String coordEntry = gxMatcher.group(1).trim();
-                String[] parts = coordEntry.split("\\s+");
+                String[] parts = coordEntry.split("\s+");
 
                 if (parts.length >= 2) {
                     try {

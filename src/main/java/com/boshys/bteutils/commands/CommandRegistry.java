@@ -122,6 +122,19 @@ public class CommandRegistry {
                     return 1;
                 }));
 
+        // ── deselect ─────────────────────────────────────────────────────────
+        root.then(ClientCommandManager.literal("deselect")
+                .executes(context -> {
+                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.deselect.none"));
+                        return 0;
+                    }
+                    int count = BoshysBTEUtils.selectedMarkers.size();
+                    BoshysBTEUtils.selectedMarkers.clear();
+                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.deselected.all", count));
+                    return 1;
+                }));
+
         // ── addMarker ────────────────────────────────────────────────────────
         root.then(ClientCommandManager.literal("addMarker")
                 .executes(context -> {
@@ -393,6 +406,14 @@ public class CommandRegistry {
 
         // ── importMultipleKMLs ───────────────────────────────────────────────
         root.then(buildImportMultipleKmls());
+
+        // ── stopImport ───────────────────────────────────────────────────────
+        // Stops any active KML import or queued imports immediately.
+        root.then(ClientCommandManager.literal("stopImport")
+                .executes(context -> {
+                    kmlImportHandler.stopImport(context.getSource().getClient());
+                    return 1;
+                }));
 
         // ── markerFileLocation ───────────────────────────────────────────────
         root.then(ClientCommandManager.literal("markerFileLocation")

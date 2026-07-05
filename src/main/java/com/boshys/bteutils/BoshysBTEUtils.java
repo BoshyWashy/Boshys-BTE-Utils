@@ -37,6 +37,9 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     public static BoshysBTEUtils INSTANCE;
 
+    // Config instance - declared here to fix "Cannot resolve symbol 'config'" errors
+    private static BoshysBTEUtilsConfig config;
+
     // Keybindings
     public static KeyBinding tpllKeybind;
     public static KeyBinding addMarkerKeybind;
@@ -74,7 +77,6 @@ public class BoshysBTEUtils implements ClientModInitializer {
     public static int selectedCornerIndex = -1; // 0-3 corners, 4 anchor
 
     // State
-    private static BoshysBTEUtilsConfig config;
     private int selectionCooldown = 0;
     private static final int SELECTION_COOLDOWN_TICKS = 5;
 
@@ -84,6 +86,9 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private int tpllCooldownTicks = 0;
     private static final int TPLL_COOLDOWN_MAX = 60;
     private boolean waitingForTeleport = false;
+    // Flag to prevent mixin from double-processing keybind-sent commands
+    public static boolean keybindCommandBeingSent = false;
+
 
     private String lastCommandSent = "";
     private int commandCooldownTicks = 0;
@@ -173,6 +178,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private void registerEvents() {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             markerStorage.performAutosave();
+            // Reset overlay temp hide state so overlays are shown on rejoin
+            if (overlayStorage != null) {
+                overlayStorage.resetTempHiddenState();
+            }
+            // Reset marker temp hide state
+            if (markersHidden) {
+                showAllMarkers();
+            }
         });
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
@@ -221,7 +234,22 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     continue;
                 }
 
-                if (config.enableMarkers && config.enableAutoTpllMarkers) {
+                // Check if keybind markers are enabled (DISABLED or MANUAL_ONLY = no keybind markers)
+                BoshysBTEUtilsConfig.TpllMarkerMode mode = config.tpllMarkerMode;
+                if (mode == BoshysBTEUtilsConfig.TpllMarkerMode.DISABLED || mode == BoshysBTEUtilsConfig.TpllMarkerMode.MANUAL_ONLY) {
+                    // Keybind markers disabled - just send the command without marker setup
+                    String commandNoSlash = config.commandPrefix + " " + clip.trim();
+                    keybindCommandBeingSent = true;
+                    try {
+                        client.player.networkHandler.sendChatCommand(commandNoSlash);
+                    } finally {
+                        keybindCommandBeingSent = false;
+                    }
+                    continue;
+                }
+
+                // Keybind markers enabled (KEYBIND_AND_MANUAL or KEYBIND_ONLY)
+                if (config.enableMarkers && (mode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_AND_MANUAL || mode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_ONLY)) {
                     if (markersHidden) {
                         if (!hideWarningShown) {
                             notifyError(client, "command.boshysbteutils.error.markers_hidden");
@@ -237,7 +265,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 }
 
                 String commandNoSlash = config.commandPrefix + " " + clip.trim();
-                client.player.networkHandler.sendChatCommand(commandNoSlash);
+                keybindCommandBeingSent = true;
+                try {
+                    client.player.networkHandler.sendChatCommand(commandNoSlash);
+                } finally {
+                    keybindCommandBeingSent = false;
+                }
 
             } catch (Throwable t) {
                 notifyError(client, "command.boshysbteutils.error.clipboard_error");
@@ -355,6 +388,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             tpllCooldownTicks--;
         } else if (waitingForTeleport) {
             waitingForTeleport = false;
+            System.out.println("[Boshys-bt-utils] TPLL cooldown expired, teleport detection cancelled");
             return;
         }
 
@@ -369,6 +403,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         );
 
         if (distanceMoved > 0.1) {
+            System.out.println("[Boshys-bt-utils] Movement detected! distanceMoved=" + distanceMoved + " | waitingForTeleport=" + waitingForTeleport + " | commandCooldown=" + commandCooldownTicks);
             if (waitingForTeleport || commandCooldownTicks > 0) {
                 if (markersHidden) {
                     if (!hideWarningShown) {
@@ -382,6 +417,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 }
 
                 MarkerData.TeleportMarker newMarker = MarkerData.addMarker(new Vec3d(currentX, currentY, currentZ));
+                System.out.println("[Boshys-bt-utils] Marker placed at: " + currentX + ", " + currentY + ", " + currentZ);
 
                 if (config.enableAutoLineConnection) {
                     MarkerData.handleAutoConnect(newMarker);
@@ -643,7 +679,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             if (nl >= 0) cleaned = cleaned.substring(0, nl).trim();
 
             if (config.formatCoordinates) {
-                cleaned = cleaned.replaceAll("\\s*,\\s*", ",").replaceAll("\\s+", " ");
+                cleaned = cleaned.replaceAll("\s*,\s*", ",").replaceAll("\s+", " ");
             }
 
             return cleaned.isEmpty() ? null : cleaned;
@@ -662,18 +698,39 @@ public class BoshysBTEUtils implements ClientModInitializer {
         client.player.sendMessage(Text.translatable(translationKey, args).formatted(net.minecraft.util.Formatting.GREEN), true);
     }
 
+    /**
+     * Called from the ClientPlayNetworkHandlerMixin when a command is sent from the client.
+     * This is the ONLY place we detect manual /tpll commands - it intercepts the packet
+     * going from client to server, so it works regardless of server chat plugins.
+     */
     public void onCommandSent(String command) {
+        System.out.println("[Boshys-bt-utils] onCommandSent called with: " + command);
+
         if (kmlImportHandler.isImporting()) {
+            System.out.println("[Boshys-bt-utils] KML importing, skipping");
             return;
         }
 
-        if (!config.enableMarkers || !config.enableAutoTpllMarkers) return;
+        if (!config.enableMarkers) {
+            System.out.println("[Boshys-bt-utils] Markers disabled, skipping");
+            return;
+        }
+
+        BoshysBTEUtilsConfig.TpllMarkerMode mode = config.tpllMarkerMode;
+        System.out.println("[Boshys-bt-utils] Current TpllMarkerMode: " + mode);
+
+        if (mode == BoshysBTEUtilsConfig.TpllMarkerMode.DISABLED || mode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_ONLY) {
+            System.out.println("[Boshys-bt-utils] Mode is DISABLED or KEYBIND_ONLY, skipping manual detection");
+            return;
+        }
 
         String lowerCmd = command.toLowerCase().trim();
-        String[] parts = lowerCmd.split("\\s+", 2);
+        String[] parts = lowerCmd.split("\s+", 2);
         String cmdName = parts[0].replace("/", "");
 
-        if (cmdName.equals("tpll") || cmdName.equals("c") || cmdName.equals(config.commandPrefix.toLowerCase())) {
+        System.out.println("[Boshys-bt-utils] Parsed command name: " + cmdName + " | prefix: " + config.commandPrefix.toLowerCase());
+
+        if (cmdName.equals("tpll") || cmdName.equals(config.commandPrefix.toLowerCase())) {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.player != null) {
                 posXBeforeTpll = client.player.getX();
@@ -683,7 +740,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 commandCooldownTicks = COMMAND_COOLDOWN_MAX;
                 waitingForTeleport = true;
                 tpllCooldownTicks = TPLL_COOLDOWN_MAX;
+                System.out.println("[Boshys-bt-utils] Manual TPLL detected! Setup complete. waitingForTeleport=true, cooldown=" + TPLL_COOLDOWN_MAX);
+            } else {
+                System.out.println("[Boshys-bt-utils] Client player is null, cannot setup detection");
             }
+        } else {
+            System.out.println("[Boshys-bt-utils] Command does not match tpll or prefix, ignoring");
         }
     }
 

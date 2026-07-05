@@ -68,12 +68,17 @@ public class ModMenuIntegration implements ModMenuApi {
             ).dimensions(centerX - 150, startY + 120, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.category.overlays").styled(style -> style.withBold(true)),
+                    button -> this.client.setScreen(new OverlaysScreen(this))
+            ).dimensions(centerX - 150, startY + 150, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.button.done"),
                     button -> {
                         saveConfig();
                         this.client.setScreen(parent);
                     }
-            ).dimensions(centerX - 100, this.height - 40, 200, 20).build());
+            ).dimensions(centerX - 100, this.height - 30, 200, 20).build());
         }
 
         @Override
@@ -160,15 +165,79 @@ public class ModMenuIntegration implements ModMenuApi {
                     }
             ).dimensions(centerX - 150, startY, 300, 20).build());
 
+            // ── TPLL Marker Mode (4-option selector) ─────────────────────────────
             this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.option.enable_auto_tpll_markers",
-                            config.enableAutoTpllMarkers ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+                    Text.translatable("gui.boshysbteutils.config.tpll_mode.title").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 25, 300, 20).build());
+
+            String modeDisabled = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.DISABLED ? "X" : " ") + " ] " +
+                    Text.translatable("gui.boshysbteutils.config.tpll_mode.disabled").getString();
+            String modeKeybindAndManual = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_AND_MANUAL ? "X" : " ") + " ] " +
+                    Text.translatable("gui.boshysbteutils.config.tpll_mode.keybind_and_manual").getString();
+            String modeKeybindOnly = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_ONLY ? "X" : " ") + " ] " +
+                    Text.translatable("gui.boshysbteutils.config.tpll_mode.keybind_only").getString();
+            String modeManualOnly = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.MANUAL_ONLY ? "X" : " ") + " ] " +
+                    Text.translatable("gui.boshysbteutils.config.tpll_mode.manual_only").getString();
+
+            // Row 1: Disabled | Keybind & Manual
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(modeDisabled),
                     button -> {
-                        config.enableAutoTpllMarkers = !config.enableAutoTpllMarkers;
+                        config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.DISABLED;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 25, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 50, 145, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(modeKeybindAndManual),
+                    button -> {
+                        config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_AND_MANUAL;
+                        saveConfig();
+                        rebuildButtons();
+                    }
+            ).dimensions(centerX + 5, startY + 50, 145, 20).build());
+
+            // Row 2: Keybind Only | Manual Only
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(modeKeybindOnly),
+                    button -> {
+                        config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_ONLY;
+                        saveConfig();
+                        rebuildButtons();
+                    }
+            ).dimensions(centerX - 150, startY + 75, 145, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(modeManualOnly),
+                    button -> {
+                        config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.MANUAL_ONLY;
+                        saveConfig();
+                        rebuildButtons();
+                    }
+            ).dimensions(centerX + 5, startY + 75, 145, 20).build());
+
+            // Mode description
+            String modeDescription = switch(config.tpllMarkerMode) {
+                case DISABLED -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.disabled").getString();
+                case KEYBIND_AND_MANUAL -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.keybind_and_manual").getString();
+                case KEYBIND_ONLY -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.keybind_only").getString();
+                case MANUAL_ONLY -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.manual_only").getString();
+            };
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal("§7" + modeDescription),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 100, 300, 15).build());
+
+            // Warning for manual mode
+            if (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.MANUAL_ONLY ||
+                    config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_AND_MANUAL) {
+                this.addDrawableChild(ButtonWidget.builder(
+                        Text.translatable("gui.boshysbteutils.config.tpll_mode.warning"),
+                        button -> {}
+                ).dimensions(centerX - 150, startY + 118, 300, 15).build());
+            }
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.option.enable_clear_confirmation",
@@ -178,14 +247,14 @@ public class ModMenuIntegration implements ModMenuApi {
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 50, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 125, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.label.confirm_limit"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 80, 140, 20).build());
+            ).dimensions(centerX - 150, startY + 155, 140, 20).build());
 
-            confirmLimitField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 80, 140, 20, Text.translatable("gui.boshysbteutils.config.label.confirm_limit"));
+            confirmLimitField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 155, 140, 20, Text.translatable("gui.boshysbteutils.config.label.confirm_limit"));
             confirmLimitField.setText(String.valueOf(config.clearConfirmLimit));
             confirmLimitField.setChangedListener(text -> {
                 try {
@@ -205,9 +274,9 @@ public class ModMenuIntegration implements ModMenuApi {
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.label.marker_colour"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 110, 140, 20).build());
+            ).dimensions(centerX - 150, startY + 185, 140, 20).build());
 
-            hexField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 110, 140, 20, Text.translatable("gui.boshysbteutils.config.label.marker_colour"));
+            hexField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 185, 140, 20, Text.translatable("gui.boshysbteutils.config.label.marker_colour"));
             hexField.setText(colourHex);
             hexField.setChangedListener(text -> {
                 try {
@@ -223,9 +292,9 @@ public class ModMenuIntegration implements ModMenuApi {
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.label.opacity"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 140, 140, 20).build());
+            ).dimensions(centerX - 150, startY + 215, 140, 20).build());
 
-            opacityField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 140, 140, 20, Text.translatable("gui.boshysbteutils.config.label.opacity"));
+            opacityField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 215, 140, 20, Text.translatable("gui.boshysbteutils.config.label.opacity"));
             opacityField.setText(String.format("%.2f", config.markerOpacity));
             opacityField.setChangedListener(text -> {
                 try {
@@ -242,9 +311,9 @@ public class ModMenuIntegration implements ModMenuApi {
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.label.scale"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 170, 140, 20).build());
+            ).dimensions(centerX - 150, startY + 245, 140, 20).build());
 
-            scaleField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 170, 140, 20, Text.translatable("gui.boshysbteutils.config.label.scale"));
+            scaleField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 245, 140, 20, Text.translatable("gui.boshysbteutils.config.label.scale"));
             scaleField.setText(String.format("%.2f", config.markerScale));
             scaleField.setChangedListener(text -> {
                 try {
@@ -311,7 +380,7 @@ public class ModMenuIntegration implements ModMenuApi {
                             }
                         }
                     }
-            ).dimensions(centerX - 150, startY + 205, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 280, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.button.clear_all"),
@@ -321,62 +390,62 @@ public class ModMenuIntegration implements ModMenuApi {
                             this.client.player.sendMessage(Text.translatable("gui.boshysbteutils.config.message.cleared_all"), false);
                         }
                     }
-            ).dimensions(centerX - 150, startY + 235, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 310, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.add_markers").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 275, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 350, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.add_markers.command"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 300, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 375, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.add_markers.keybind"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 318, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 393, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.clear_markers").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 366, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 441, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.clear_markers.command"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 391, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 466, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.clear_markers.keybind"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 409, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 484, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.clear_markers.button"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 427, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 502, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.multiselect").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 457, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 532, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.multiselect.ctrl"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 482, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 557, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.multiselect.mac"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 500, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 575, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.button.back"),
                     button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 540, 200, 20).build());
+            ).dimensions(centerX - 100, startY + 615, 200, 20).build());
         }
 
         @Override
@@ -384,7 +453,7 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
-                int contentHeight = 580;
+                int contentHeight = 650;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
@@ -410,6 +479,8 @@ public class ModMenuIntegration implements ModMenuApi {
         private TextFieldWidget hexField;
         private TextFieldWidget opacityField;
         private TextFieldWidget thicknessField;
+        private TextFieldWidget circleThicknessField;
+        private TextFieldWidget circleDensityField;
 
         public LineConnectionScreen(Screen parent) {
             super(Text.translatable("gui.boshysbteutils.config.screen.lines"));
@@ -497,65 +568,115 @@ public class ModMenuIntegration implements ModMenuApi {
             });
             this.addDrawableChild(thicknessField);
 
+            // ── Circle settings ──────────────────────────────────────────────
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.circle.title").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 125, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.label.circle_thickness"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 150, 140, 20).build());
+
+            circleThicknessField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 150, 140, 20, Text.translatable("gui.boshysbteutils.config.label.circle_thickness"));
+            circleThicknessField.setText(String.format("%.2f", config.circleThickness));
+            circleThicknessField.setChangedListener(text -> {
+                try {
+                    float val = Float.parseFloat(text);
+                    if (val >= 0.01f && val <= 10.0f) {
+                        config.circleThickness = val;
+                        saveConfig();
+                    }
+                } catch (NumberFormatException e) {
+                }
+            });
+            this.addDrawableChild(circleThicknessField);
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.label.circle_density"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 180, 140, 20).build());
+
+            circleDensityField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 180, 140, 20, Text.translatable("gui.boshysbteutils.config.label.circle_density"));
+            circleDensityField.setText(String.format("%.2f", config.circleSegmentPercent));
+            circleDensityField.setChangedListener(text -> {
+                try {
+                    float val = Float.parseFloat(text);
+                    if (val >= 0.1f && val <= 50.0f) {
+                        config.circleSegmentPercent = val;
+                        saveConfig();
+                    }
+                } catch (NumberFormatException e) {
+                }
+            });
+            this.addDrawableChild(circleDensityField);
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.circle.density.desc"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 205, 300, 15).build());
+
+            // ── Help sections ──────────────────────────────────────────────
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.lines.title").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 130, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 240, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.lines.auto"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 155, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 265, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.lines.manual"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 173, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 283, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.lines.select"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 191, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 301, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.lines.connect"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 209, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 319, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.lines.disconnect"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 227, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 337, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.lines.delete"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 245, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 355, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.keybinds.title").styled(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 275, 300, 20).build());
+            ).dimensions(centerX - 150, startY + 385, 300, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.keybinds.right_click"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 300, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 410, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.keybinds.delete"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 318, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 428, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.help.keybinds.multiselect"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 336, 300, 15).build());
+            ).dimensions(centerX - 150, startY + 446, 300, 15).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.button.back"),
                     button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 380, 200, 20).build());
+            ).dimensions(centerX - 100, startY + 490, 200, 20).build());
         }
 
         @Override
@@ -563,7 +684,7 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
-                int contentHeight = 420;
+                int contentHeight = 530;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
@@ -582,7 +703,6 @@ public class ModMenuIntegration implements ModMenuApi {
             AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
         }
     }
-
     public static class SavedMarkersScreen extends Screen {
         private final Screen parent;
         private int scrollOffset = 0;
@@ -624,6 +744,7 @@ public class ModMenuIntegration implements ModMenuApi {
 
             pathField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 80, 300, 20, Text.translatable("gui.boshysbteutils.config.label.custom_path"));
             pathField.setText(config.savedMarkersFolderPath != null ? config.savedMarkersFolderPath : "");
+            pathField.setMaxLength(2000);
             pathField.setChangedListener(text -> {
                 config.savedMarkersFolderPath = text;
                 if (BoshysBTEUtils.INSTANCE != null) {
@@ -842,6 +963,7 @@ public class ModMenuIntegration implements ModMenuApi {
 
             pathField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 80, 300, 20, Text.translatable("gui.boshysbteutils.config.label.kml_custom_path"));
             pathField.setText(config.kmlFolderPath != null ? config.kmlFolderPath : "");
+            pathField.setMaxLength(2000);
             pathField.setChangedListener(text -> {
                 config.kmlFolderPath = text;
                 saveConfig();
@@ -1031,7 +1153,7 @@ public class ModMenuIntegration implements ModMenuApi {
             worldEditBlockField.setText(config.worldEditLineBlock);
             worldEditBlockField.setChangedListener(text -> {
                 if (text != null && !text.trim().isEmpty()) {
-                    config.worldEditLineBlock = text.trim().replaceAll("\\s+", "_");
+                    config.worldEditLineBlock = text.trim().replaceAll("\s+", "_");
                     saveConfig();
                 }
             });
@@ -1139,6 +1261,129 @@ public class ModMenuIntegration implements ModMenuApi {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
                 int contentHeight = 1100;
+                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+                rebuildButtons();
+                return true;
+            }
+            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+
+        @Override
+        public void close() {
+            saveConfig();
+            this.client.setScreen(parent);
+        }
+
+        private void saveConfig() {
+            AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
+        }
+    }
+
+    public static class OverlaysScreen extends Screen {
+        private final Screen parent;
+        private int scrollOffset = 0;
+        private TextFieldWidget renderDistanceField;
+        private ButtonWidget currentValueLabel;
+
+        public OverlaysScreen(Screen parent) {
+            super(Text.translatable("gui.boshysbteutils.config.screen.overlays"));
+            this.parent = parent;
+        }
+
+        @Override
+        protected void init() {
+            rebuildButtons();
+        }
+
+        private void rebuildButtons() {
+            this.clearChildren();
+            int centerX = this.width / 2;
+            int startY = this.height / 6 - scrollOffset;
+
+            BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.overlays.title").styled(style -> style.withBold(true)),
+                    button -> {}
+            ).dimensions(centerX - 150, startY, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.overlays.render_distance.label"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 30, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.overlays.render_distance.desc"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 55, 300, 15).build());
+
+            // Current value label — updated dynamically without rebuilding the whole UI
+            currentValueLabel = ButtonWidget.builder(
+                    getRenderDistanceText(config),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 75, 300, 20).build();
+            this.addDrawableChild(currentValueLabel);
+
+            renderDistanceField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 100, 300, 20,
+                    Text.translatable("gui.boshysbteutils.config.overlays.render_distance.label"));
+            renderDistanceField.setText(String.valueOf(config.overlayRenderDistance));
+            renderDistanceField.setMaxLength(3);
+            renderDistanceField.setEditableColor(0xFFFFFF);
+            renderDistanceField.setChangedListener(text -> {
+                try {
+                    if (text == null || text.isEmpty()) {
+                        // Empty is fine during typing, don't update config yet
+                        return;
+                    }
+                    int val = Integer.parseInt(text);
+                    if (val >= -1 && val <= 64) {
+                        config.overlayRenderDistance = val;
+                        saveConfig();
+                        // Only update the label text, DON'T rebuild all buttons
+                        currentValueLabel.setMessage(getRenderDistanceText(config));
+                    }
+                } catch (NumberFormatException e) {
+                    // Invalid input (e.g. "-" while typing negative), ignore
+                }
+            });
+            this.addDrawableChild(renderDistanceField);
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.overlays.subdivision.desc"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 135, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.overlays.culling.desc"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 155, 300, 15).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.button.back"),
+                    button -> this.client.setScreen(parent)
+            ).dimensions(centerX - 100, startY + 200, 200, 20).build());
+        }
+
+        private Text getRenderDistanceText(BoshysBTEUtilsConfig config) {
+            if (config.overlayRenderDistance < 0) {
+                return Text.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
+                        Text.translatable("gui.boshysbteutils.config.overlays.render_distance.simulation"));
+            } else if (config.overlayRenderDistance == 0) {
+                return Text.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
+                        Text.translatable("gui.boshysbteutils.config.overlays.render_distance.unlimited"));
+            } else {
+                return Text.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
+                        Text.literal(config.overlayRenderDistance + " chunks"));
+            }
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+            if (verticalAmount != 0) {
+                scrollOffset -= (int)(verticalAmount * 20);
+                if (scrollOffset < 0) scrollOffset = 0;
+                int contentHeight = 250;
                 int maxScroll = Math.max(0, contentHeight - this.height + 100);
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
