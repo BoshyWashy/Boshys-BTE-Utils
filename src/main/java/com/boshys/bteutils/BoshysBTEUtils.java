@@ -89,6 +89,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
     // Flag to prevent mixin from double-processing keybind-sent commands
     public static boolean keybindCommandBeingSent = false;
 
+    // Manual TPLL WorldEdit lines state
+    private boolean manualTpllWeActive = false;
+    private boolean manualTpllWeFirstPoint = true;
+    private int manualTpllWeCooldown = 0;
+    private static final int MANUAL_TPLL_WE_COOLDOWN = 3;
+
 
     private String lastCommandSent = "";
     private int commandCooldownTicks = 0;
@@ -382,6 +388,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
             return;
         }
 
+        // Decrement manual TPLL WE lines cooldown
+        if (manualTpllWeCooldown > 0) {
+            manualTpllWeCooldown--;
+        }
+
         if (!waitingForTeleport && commandCooldownTicks == 0) return;
 
         if (tpllCooldownTicks > 0) {
@@ -421,6 +432,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
                 if (config.enableAutoLineConnection) {
                     MarkerData.handleAutoConnect(newMarker);
+                }
+
+                // Handle auto WorldEdit lines on TPLL
+                if (config.enableAutoWorldEditLinesOnTpll && client.player != null) {
+                    handleManualTpllWeLines(client);
                 }
 
                 waitingForTeleport = false;
@@ -716,6 +732,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
             return;
         }
 
+        if (markersHidden) {
+            System.out.println("[Boshys-bt-utils] Markers are temporarily hidden, skipping TPLL marker detection");
+            return;
+        }
+
         BoshysBTEUtilsConfig.TpllMarkerMode mode = config.tpllMarkerMode;
         System.out.println("[Boshys-bt-utils] Current TpllMarkerMode: " + mode);
 
@@ -755,6 +776,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
             return;
         }
 
+        if (markersHidden) {
+            return;
+        }
+
         double distanceMoved = Math.sqrt(
                 Math.pow(newX - oldX, 2) +
                         Math.pow(newY - oldY, 2) +
@@ -778,6 +803,67 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
     }
 
+    /**
+     * Handles automatic WorldEdit line creation on each manual/keybind TPLL teleport.
+     * Sequence:
+     * - First TPLL: //sel, //sel cuboid, //pos1
+     * - Second TPLL: //pos2, //line <block>, //pos1
+     * - Third+ TPLL: same as second
+     */
+    private void handleManualTpllWeLines(MinecraftClient client) {
+        if (client.player == null) return;
+        if (manualTpllWeCooldown > 0) return;
+
+        String block = config.worldEditLineBlock;
+
+        if (!manualTpllWeActive) {
+            // First TPLL ever with this feature - do full setup + first point
+            manualTpllWeActive = true;
+            manualTpllWeFirstPoint = true;
+
+            // Send all setup commands + first point at once
+            // Prefix with "/" so sendChatCommand produces "//command" on server
+            client.player.networkHandler.sendChatCommand("/sel");
+            client.player.networkHandler.sendChatCommand("/sel cuboid");
+            client.player.networkHandler.sendChatCommand("/pos1");
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: First TPLL - sent //sel, //sel cuboid, //pos1");
+        } else if (manualTpllWeFirstPoint) {
+            // Second TPLL - do pos2, line, pos1 IN THAT ORDER
+            manualTpllWeFirstPoint = false;
+            client.player.networkHandler.sendChatCommand("/pos2");
+            client.player.networkHandler.sendChatCommand("/line " + block);
+            client.player.networkHandler.sendChatCommand("/pos1");
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Second TPLL - sent //pos2, //line " + block + ", //pos1");
+        } else {
+            // Third+ TPLL - same as second: pos2, line, pos1 IN THAT ORDER
+            client.player.networkHandler.sendChatCommand("/pos2");
+            client.player.networkHandler.sendChatCommand("/line " + block);
+            client.player.networkHandler.sendChatCommand("/pos1");
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Nth TPLL - sent //pos2, //line " + block + ", //pos1");
+        }
+    }
+
+    /**
+     * Resets the manual TPLL WorldEdit lines sequence.
+     * Called by /boshys-bt-utils resetManualTpllLinesSequence
+     */
+    public void resetManualTpllWeLinesSequence() {
+        manualTpllWeActive = false;
+        manualTpllWeFirstPoint = true;
+        manualTpllWeCooldown = 0;
+        System.out.println("[Boshys-bt-utils] Manual TPLL WE lines sequence reset");
+    }
+
+    /**
+     * Resets the auto WorldEdit lines state. Called when markers are cleared or hidden.
+     */
+    public void resetAutoWeLinesState() {
+        resetManualTpllWeLinesSequence();
+    }
+
     public static void hideAllMarkers() {
         if (markersHidden) return;
 
@@ -793,6 +879,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
         markerConnections.clear();
         selectedMarkers.clear();
         lastAddedMarker = null;
+
+        // Reset manual TPLL WE lines state when markers are hidden
+        if (INSTANCE != null) {
+            INSTANCE.resetAutoWeLinesState();
+        }
 
         markersHidden = true;
         hideWarningShown = false;
@@ -813,6 +904,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
         hiddenConnections.clear();
         hiddenSelectedMarkers.clear();
         hiddenLastAddedMarker = null;
+
+        // Reset manual TPLL WE lines state when markers are shown
+        if (INSTANCE != null) {
+            INSTANCE.resetAutoWeLinesState();
+        }
 
         markersHidden = false;
         hideWarningShown = false;

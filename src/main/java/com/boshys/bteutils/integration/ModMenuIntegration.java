@@ -118,6 +118,24 @@ public class ModMenuIntegration implements ModMenuApi {
                     }
             ).dimensions(centerX - 150, startY, 300, 20).build());
 
+            // ── Auto WorldEdit Lines on TPLL ──────────────────────────────
+            BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.option.enable_auto_we_lines_tpll",
+                            config.enableAutoWorldEditLinesOnTpll ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+                    button -> {
+                        config.enableAutoWorldEditLinesOnTpll = !config.enableAutoWorldEditLinesOnTpll;
+                        saveConfig();
+                        this.client.setScreen(new TPLLKeybindScreen(parent));
+                    }
+            ).dimensions(centerX - 150, startY + 35, 300, 20).build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("gui.boshysbteutils.config.auto_we_lines_tpll.desc"),
+                    button -> {}
+            ).dimensions(centerX - 150, startY + 60, 300, 20).build());
+
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("gui.boshysbteutils.config.button.back"),
                     button -> this.client.setScreen(parent)
@@ -126,7 +144,12 @@ public class ModMenuIntegration implements ModMenuApi {
 
         @Override
         public void close() {
+            saveConfig();
             this.client.setScreen(parent);
+        }
+
+        private void saveConfig() {
+            AutoConfig.getConfigHolder(BoshysBTEUtilsConfig.class).save();
         }
     }
 

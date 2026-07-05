@@ -26,6 +26,7 @@ public class MessageHandlerMixin {
     private void onGameMessage(Text message, boolean overlay, CallbackInfo ci) {
         if (BoshysBTEUtils.INSTANCE == null) return;
         if (!BoshysBTEUtils.getConfig().enableMarkers) return;
+        if (BoshysBTEUtils.markersHidden) return;
 
         BoshysBTEUtilsConfig.TpllMarkerMode mode = BoshysBTEUtils.getConfig().tpllMarkerMode;
         // Only trigger for manual modes (MANUAL_ONLY or KEYBIND_AND_MANUAL)

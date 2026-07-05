@@ -205,30 +205,12 @@ public class CommandRegistry {
                         return 0;
                     }
                     if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                        boolean hasUnloaded = false;
-                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.selectedMarkers) {
-                            String o = BoshysBTEUtils.markerOrigins.get(m);
-                            if (o == null || o.equals("autosave") || o.startsWith("autosave_")) { hasUnloaded = true; break; }
-                        }
-                        if (hasUnloaded) {
-                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
-                            return 0;
-                        }
                         int n = 0;
                         for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.selectedMarkers) {
                             com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
                         }
                         context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated.selected", n));
                     } else {
-                        boolean hasUnloaded = false;
-                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
-                            String o = BoshysBTEUtils.markerOrigins.get(m);
-                            if (o == null || o.equals("autosave") || o.startsWith("autosave_")) { hasUnloaded = true; break; }
-                        }
-                        if (hasUnloaded) {
-                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"));
-                            return 0;
-                        }
                         int n = 0;
                         for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
                             com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
@@ -401,11 +383,26 @@ public class CommandRegistry {
         root.then(ClientCommandManager.literal("importKML")
                 .then(ClientCommandManager.argument("filename", StringArgumentType.string())
                         .suggests(KML_FILE_SUGGESTIONS)
-                        .executes(context -> kmlImportHandler.importKmlFile(context.getSource(),
-                                StringArgumentType.getString(context, "filename")))));
+                        .executes(context -> {
+                            if (BoshysBTEUtils.markersHidden) {
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                return 0;
+                            }
+                            return kmlImportHandler.importKmlFile(context.getSource(),
+                                    StringArgumentType.getString(context, "filename"));
+                        })));
 
         // ── importMultipleKMLs ───────────────────────────────────────────────
-        root.then(buildImportMultipleKmls());
+        root.then(ClientCommandManager.literal("importMultipleKMLs")
+                .executes(context -> {
+                    if (BoshysBTEUtils.markersHidden) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                        return 0;
+                    }
+                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
+                    return 0;
+                })
+                .then(buildImportMultipleKmls()));
 
         // ── stopImport ───────────────────────────────────────────────────────
         // Stops any active KML import or queued imports immediately.
@@ -465,6 +462,10 @@ public class CommandRegistry {
         root.then(ClientCommandManager.literal("createCircle")
                 .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0.1))
                         .executes(context -> {
+                            if (BoshysBTEUtils.markersHidden) {
+                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                return 0;
+                            }
                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
                                 context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                                 return 0;
@@ -496,6 +497,10 @@ public class CommandRegistry {
         // ── removeCircle ─────────────────────────────────────────────────────
         root.then(ClientCommandManager.literal("removeCircle")
                 .executes(context -> {
+                    if (BoshysBTEUtils.markersHidden) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                        return 0;
+                    }
                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
                         context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
                         return 0;
@@ -516,6 +521,15 @@ public class CommandRegistry {
                         return 0;
                     }
                     context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.circle.removed", count));
+                    return 1;
+                }));
+
+        // ── resetManualTpllLinesSequence ────────────────────────────────────
+        root.then(ClientCommandManager.literal("resetManualTpllLinesSequence")
+                .executes(context -> {
+                    BoshysBTEUtils.INSTANCE.resetManualTpllWeLinesSequence();
+                    context.getSource().sendFeedback(Text.translatable(
+                            "command.boshysbteutils.manual_we_lines.reset"));
                     return 1;
                 }));
 
@@ -619,6 +633,10 @@ public class CommandRegistry {
     // -----------------------------------------------------------------------
 
     private int executeMultipleKmlImport(com.mojang.brigadier.context.CommandContext<FabricClientCommandSource> context, int argCount) {
+        if (BoshysBTEUtils.markersHidden) {
+            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+            return 0;
+        }
         List<String> files = new ArrayList<>();
         try { files.add(StringArgumentType.getString(context, "file1")); } catch (Exception ignored) {}
         try { files.add(StringArgumentType.getString(context, "file2")); } catch (Exception ignored) {}
