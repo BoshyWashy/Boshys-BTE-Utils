@@ -89,11 +89,18 @@ public class BoshysBTEUtils implements ClientModInitializer {
     // Flag to prevent mixin from double-processing keybind-sent commands
     public static boolean keybindCommandBeingSent = false;
 
-    // Manual TPLL WorldEdit lines state
+    // Manual TPLL WorldEdit lines state (queue-based for ordered execution)
     private boolean manualTpllWeActive = false;
     private boolean manualTpllWeFirstPoint = true;
     private int manualTpllWeCooldown = 0;
     private static final int MANUAL_TPLL_WE_COOLDOWN = 3;
+
+    // Command queue for ordered WorldEdit line execution
+    private final List<String> manualWeCommandQueue = new ArrayList<>();
+    private int manualWeCommandIndex = 0;
+    private boolean manualWeWaitingForCommand = false;
+    private int manualWeCommandTickCounter = 0;
+    private static final int MANUAL_WE_COMMAND_DELAY = 1; // 1 tick between commands
 
 
     private String lastCommandSent = "";
@@ -204,6 +211,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
             kmlImportHandler.tick(client);
             markerStorage.tickAutosave();
+            tickManualWeCommandQueue(client);
 
             if (selectionCooldown > 0) {
                 selectionCooldown--;
@@ -817,33 +825,75 @@ public class BoshysBTEUtils implements ClientModInitializer {
         String block = config.worldEditLineBlock;
 
         if (!manualTpllWeActive) {
-            // First TPLL ever with this feature - do full setup + first point
+            // First TPLL ever with this feature - queue full setup + first point
             manualTpllWeActive = true;
             manualTpllWeFirstPoint = true;
 
-            // Send all setup commands + first point at once
-            // Prefix with "/" so sendChatCommand produces "//command" on server
-            client.player.networkHandler.sendChatCommand("/sel");
-            client.player.networkHandler.sendChatCommand("/sel cuboid");
-            client.player.networkHandler.sendChatCommand("/pos1");
+            // Build command queue: //sel -> //sel cuboid -> //pos1
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/sel");
+            manualWeCommandQueue.add("/sel cuboid");
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
             manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
-            System.out.println("[Boshys-bt-utils] Manual TPLL WE: First TPLL - sent //sel, //sel cuboid, //pos1");
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: First TPLL - queued //sel, //sel cuboid, //pos1");
         } else if (manualTpllWeFirstPoint) {
-            // Second TPLL - do pos2, line, pos1 IN THAT ORDER
+            // Second TPLL - queue: //pos2 -> //line <block> -> //pos1
             manualTpllWeFirstPoint = false;
-            client.player.networkHandler.sendChatCommand("/pos2");
-            client.player.networkHandler.sendChatCommand("/line " + block);
-            client.player.networkHandler.sendChatCommand("/pos1");
+
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
             manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
-            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Second TPLL - sent //pos2, //line " + block + ", //pos1");
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Second TPLL - queued //pos2, //line " + block + ", //pos1");
         } else {
-            // Third+ TPLL - same as second: pos2, line, pos1 IN THAT ORDER
-            client.player.networkHandler.sendChatCommand("/pos2");
-            client.player.networkHandler.sendChatCommand("/line " + block);
-            client.player.networkHandler.sendChatCommand("/pos1");
+            // Third+ TPLL - queue: //pos2 -> //line <block> -> //pos1
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
             manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
-            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Nth TPLL - sent //pos2, //line " + block + ", //pos1");
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Nth TPLL - queued //pos2, //line " + block + ", //pos1");
         }
+    }
+
+    /**
+     * Processes the manual WorldEdit command queue with 1-tick delays between commands.
+     * Called from the client tick event.
+     */
+    private void tickManualWeCommandQueue(MinecraftClient client) {
+        if (!manualWeWaitingForCommand || client.player == null) return;
+
+        if (manualWeCommandTickCounter > 0) {
+            manualWeCommandTickCounter--;
+            return;
+        }
+
+        if (manualWeCommandIndex >= manualWeCommandQueue.size()) {
+            manualWeWaitingForCommand = false;
+            manualWeCommandIndex = 0;
+            return;
+        }
+
+        String command = manualWeCommandQueue.get(manualWeCommandIndex);
+        manualWeCommandIndex++;
+
+        client.player.networkHandler.sendChatCommand(command);
+        manualWeCommandTickCounter = MANUAL_WE_COMMAND_DELAY;
+
+        System.out.println("[Boshys-bt-utils] Manual TPLL WE: Sent command " + manualWeCommandIndex + "/" + manualWeCommandQueue.size() + ": " + command);
     }
 
     /**
@@ -854,6 +904,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
         manualTpllWeActive = false;
         manualTpllWeFirstPoint = true;
         manualTpllWeCooldown = 0;
+        manualWeCommandQueue.clear();
+        manualWeCommandIndex = 0;
+        manualWeWaitingForCommand = false;
+        manualWeCommandTickCounter = 0;
         System.out.println("[Boshys-bt-utils] Manual TPLL WE lines sequence reset");
     }
 
