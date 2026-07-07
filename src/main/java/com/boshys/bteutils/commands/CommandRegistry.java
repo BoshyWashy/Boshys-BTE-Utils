@@ -1,6 +1,7 @@
 package com.boshys.bteutils.commands;
 
 import com.boshys.bteutils.BoshysBTEUtils;
+import com.boshys.bteutils.console.ConsoleMessageCommands;
 import com.boshys.bteutils.overlay.OverlayCommands;
 import com.boshys.bteutils.overlay.OverlayStorage;
 import com.boshys.bteutils.storage.MarkerStorage;
@@ -30,6 +31,7 @@ public class CommandRegistry {
     private final MarkerStorage markerStorage;
     private final KmlImportHandler kmlImportHandler;
     private final OverlayStorage overlayStorage;
+    private final ConsoleMessageCommands consoleMessageCommands;
 
     // -----------------------------------------------------------------------
     // Suggestion providers
@@ -69,6 +71,7 @@ public class CommandRegistry {
         this.markerStorage = markerStorage;
         this.kmlImportHandler = kmlImportHandler;
         this.overlayStorage = BoshysBTEUtils.getOverlayStorage();
+        this.consoleMessageCommands = new ConsoleMessageCommands(mod.getConsoleMessageConfig());
     }
 
     // -----------------------------------------------------------------------
@@ -532,6 +535,15 @@ public class CommandRegistry {
                             "command.boshysbteutils.manual_we_lines.reset"));
                     return 1;
                 }));
+
+        // ── ManualTPLLMsgDetectAdd ─────────────────────────────────────────
+        root.then(consoleMessageCommands.build());
+
+        // ── listManualTPLLMsgDetects ──────────────────────────────────────────
+        root.then(consoleMessageCommands.buildListCommand());
+
+        // ── removeManualTPLLMsgDetect ────────────────────────────────────────
+        root.then(consoleMessageCommands.buildRemoveCommand());
 
         // ── overlay ──────────────────────────────────────────────────────────
         root.then(new OverlayCommands(overlayStorage).build());

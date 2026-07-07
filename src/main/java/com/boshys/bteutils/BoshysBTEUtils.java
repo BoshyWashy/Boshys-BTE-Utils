@@ -33,6 +33,8 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.*;
 
+import com.boshys.bteutils.console.ConsoleMessageConfig;
+import com.boshys.bteutils.console.ConsoleMessageDetector;
 public class BoshysBTEUtils implements ClientModInitializer {
 
     public static BoshysBTEUtils INSTANCE;
@@ -86,6 +88,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private int tpllCooldownTicks = 0;
     private static final int TPLL_COOLDOWN_MAX = 60;
     private boolean waitingForTeleport = false;
+
+    // Global teleport cooldown - shared across ALL detection methods to prevent duplicate markers
+    private long lastTeleportMarkerTime = 0;
+    private static final long TELEPORT_MARKER_COOLDOWN_MS = 1500;
     // Flag to prevent mixin from double-processing keybind-sent commands
     public static boolean keybindCommandBeingSent = false;
 
@@ -111,6 +117,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private MarkerStorage markerStorage;
     private KmlImportHandler kmlImportHandler;
 
+    // Console message detection components
+    private ConsoleMessageConfig consoleMessageConfig;
+    private ConsoleMessageDetector consoleMessageDetector;
+
     // Overlay components
     private static OverlayStorage overlayStorage;
     private static OverlayTextureManager overlayTextureManager;
@@ -130,6 +140,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
         overlayStorage = new OverlayStorage();
         overlayTextureManager = new OverlayTextureManager();
         overlayRenderer = new OverlayRenderer(overlayStorage, overlayTextureManager);
+
+        // Initialize console message detection
+        consoleMessageConfig = new ConsoleMessageConfig();
+        consoleMessageDetector = new ConsoleMessageDetector(consoleMessageConfig);
+        consoleMessageDetector.install();
 
         registerKeybindings();
         registerEvents();
@@ -212,6 +227,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
             kmlImportHandler.tick(client);
             markerStorage.tickAutosave();
             tickManualWeCommandQueue(client);
+
+            // Process console message detector pending markers
+            if (consoleMessageDetector != null) {
+                consoleMessageDetector.processPendingMarkers(client);
+            }
 
             if (selectionCooldown > 0) {
                 selectionCooldown--;
@@ -429,6 +449,15 @@ public class BoshysBTEUtils implements ClientModInitializer {
                         notifyError(client, "command.boshysbteutils.error.markers_hidden");
                         hideWarningShown = true;
                     }
+                    waitingForTeleport = false;
+                    commandCooldownTicks = 0;
+                    lastCommandSent = "";
+                    return;
+                }
+
+                // Check global cooldown to prevent duplicates from chat/console detection
+                if (!tryPlaceTeleportMarker()) {
+                    System.out.println("[Boshys-bt-utils] Movement-based marker suppressed by global cooldown (already placed by chat/console detection)");
                     waitingForTeleport = false;
                     commandCooldownTicks = 0;
                     lastCommandSent = "";
@@ -937,6 +966,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         // Reset manual TPLL WE lines state when markers are hidden
         if (INSTANCE != null) {
             INSTANCE.resetAutoWeLinesState();
+            INSTANCE.resetTeleportMarkerCooldown();
         }
 
         markersHidden = true;
@@ -998,5 +1028,134 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     public static OverlayTextureManager getOverlayTextureManager() {
         return overlayTextureManager;
+    }
+
+    public ConsoleMessageConfig getConsoleMessageConfig() {
+        return consoleMessageConfig;
+    }
+
+    public ConsoleMessageDetector getConsoleMessageDetector() {
+        return consoleMessageDetector;
+    }
+
+    /**
+     * Handles auto WorldEdit lines triggered from console message detection.
+     * This is called from ConsoleMessageDetector when a teleport message is detected.
+     */
+    public void handleAutoWeLinesFromConsole(MinecraftClient client) {
+        if (client.player == null) return;
+        if (manualTpllWeCooldown > 0) return;
+
+        String block = config.worldEditLineBlock;
+
+        if (!manualTpllWeActive) {
+            manualTpllWeActive = true;
+            manualTpllWeFirstPoint = true;
+
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/sel");
+            manualWeCommandQueue.add("/sel cuboid");
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Console WE: First detection - queued setup + pos1");
+        } else if (manualTpllWeFirstPoint) {
+            manualTpllWeFirstPoint = false;
+
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Console WE: Second detection - queued pos2, line, pos1");
+        } else {
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Console WE: Nth detection - queued pos2, line, pos1");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Console-based teleport detection
+    // Called from ConsoleMessageDetector when a pattern is matched.
+    // Sets up the same movement-based detection that the keybind uses.
+    // ------------------------------------------------------------------
+
+    /**
+     * Called from ConsoleMessageDetector when a "Teleported to" pattern is detected
+     * in console output. Saves the current position and enables movement-based detection
+     * so the marker is placed AFTER the player actually arrives.
+     */
+    public void triggerConsoleTeleportDetection(MinecraftClient client) {
+        if (client.player == null) return;
+        if (markersHidden) return;
+        if (!config.enableMarkers) return;
+
+        // Check global cooldown to prevent duplicates
+        if (isTeleportMarkerOnCooldown()) {
+            System.out.println("[Boshys-bt-utils] Console teleport detection suppressed by global cooldown");
+            return;
+        }
+
+        // Save current position (before teleport completes)
+        posXBeforeTpll = client.player.getX();
+        posYBeforeTpll = client.player.getY();
+        posZBeforeTpll = client.player.getZ();
+
+        // Enable movement-based detection (same as keybind)
+        waitingForTeleport = true;
+        tpllCooldownTicks = TPLL_COOLDOWN_MAX;
+        commandCooldownTicks = COMMAND_COOLDOWN_MAX;
+        lastCommandSent = "console-detection";
+
+        System.out.println("[Boshys-bt-utils] Console teleport detection triggered. Waiting for movement...");
+    }
+
+    // ------------------------------------------------------------------
+    // Global teleport marker cooldown - prevents duplicate markers from
+    // multiple detection methods (command packet, chat mixin, console)
+    // firing for the same teleport event.
+    // ------------------------------------------------------------------
+
+    /**
+     * Checks if enough time has passed since the last teleport marker was placed.
+     * If not, returns false and the caller should skip placing a marker.
+     * If yes, updates the timestamp and returns true.
+     */
+    public boolean tryPlaceTeleportMarker() {
+        long now = System.currentTimeMillis();
+        if (now - lastTeleportMarkerTime < TELEPORT_MARKER_COOLDOWN_MS) {
+            return false; // Too soon - duplicate suppressed
+        }
+        lastTeleportMarkerTime = now;
+        return true;
+    }
+
+    /**
+     * Returns true if the teleport marker cooldown is currently active.
+     */
+    public boolean isTeleportMarkerOnCooldown() {
+        return System.currentTimeMillis() - lastTeleportMarkerTime < TELEPORT_MARKER_COOLDOWN_MS;
+    }
+
+    /**
+     * Resets the teleport marker cooldown. Call when markers are cleared/hidden.
+     */
+    public void resetTeleportMarkerCooldown() {
+        lastTeleportMarkerTime = 0;
     }
 }

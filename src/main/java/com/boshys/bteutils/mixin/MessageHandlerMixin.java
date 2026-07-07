@@ -12,8 +12,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Intercepts ALL game/system messages at the MessageHandler level.
- * This catches messages regardless of which packet type delivered them.
- * More reliable than packet-level interception for 1.21.10.
+ * When "Teleported to" is seen, triggers the same movement-based
+ * teleport detection that the keybind and console detector use.
  */
 @Mixin(MessageHandler.class)
 public class MessageHandlerMixin {
@@ -40,33 +40,14 @@ public class MessageHandlerMixin {
         String msgString = message.getString();
         if (msgString == null || msgString.isEmpty()) return;
 
-        // Check if this is a teleport message - be very lenient with matching
+        // Check if this is a teleport message
         if (msgString.contains("Teleported to")) {
             System.out.println("[Boshys-bt-utils] MessageHandler detected teleport message: " + msgString);
 
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.player != null) {
-                // Place marker at current position (where player teleported to)
-                double x = client.player.getX();
-                double y = client.player.getY();
-                double z = client.player.getZ();
-
-                System.out.println("[Boshys-bt-utils] Placing marker from message detection at: " + x + ", " + y + ", " + z);
-
-                com.boshys.bteutils.data.MarkerData.TeleportMarker newMarker =
-                        com.boshys.bteutils.data.MarkerData.addMarker(
-                                new net.minecraft.util.math.Vec3d(x, y, z)
-                        );
-
-                if (BoshysBTEUtils.getConfig().enableAutoLineConnection) {
-                    com.boshys.bteutils.data.MarkerData.handleAutoConnect(newMarker);
-                }
-
-                // Notify player via action bar
-                client.player.sendMessage(
-                        net.minecraft.text.Text.literal("\u00a7a[Boshys BTE Utils] Marker placed from teleport detection!"),
-                        true
-                );
+                // Trigger movement-based detection (same as keybind/console)
+                BoshysBTEUtils.INSTANCE.triggerConsoleTeleportDetection(client);
             }
         }
     }

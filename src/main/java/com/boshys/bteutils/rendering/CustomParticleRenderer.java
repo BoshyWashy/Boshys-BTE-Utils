@@ -21,6 +21,16 @@ public class CustomParticleRenderer {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.world == null || client.player == null) return;
 
+        // In 1.21.10, context.consumers() is always available during AFTER_ENTITIES.
+        // In 1.21.11, it can be null in certain render passes due to the new
+        // extraction/drawing split architecture. We simply skip rendering for
+        // this frame when that happens — the markers will render on the next
+        // valid frame. Using a fallback buffer source is NOT safe because
+        // RenderLayer.getLines() and RenderLayer.getDebugQuads() are not
+        // compatible with arbitrary buffer sources in 1.21.11.
+        VertexConsumerProvider consumers = context.consumers();
+        if (consumers == null) return;
+
         MatrixStack matrices = context.matrices();
         Camera camera = client.gameRenderer.getCamera();
         Vec3d cameraPos = camera.getPos();
@@ -29,21 +39,18 @@ public class CustomParticleRenderer {
 
         // Render connections first (so they appear behind markers)
         if (!BoshysBTEUtils.markerConnections.isEmpty()) {
-            renderConnections(context, matrices, cameraPos);
+            renderConnections(consumers, matrices, cameraPos);
         }
 
         // Render markers and their optional circles
         if (!BoshysBTEUtils.markers.isEmpty()) {
-            renderMarkersAndCircles(context, matrices, cameraPos);
+            renderMarkersAndCircles(consumers, matrices, cameraPos);
         }
 
         matrices.pop();
     }
 
-    private static void renderConnections(WorldRenderContext context, MatrixStack matrices, Vec3d cameraPos) {
-        VertexConsumerProvider consumers = context.consumers();
-        if (consumers == null) return;
-
+    private static void renderConnections(VertexConsumerProvider consumers, MatrixStack matrices, Vec3d cameraPos) {
         VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
 
         Color lineColour = new Color(BoshysBTEUtils.getConfig().lineColour);
@@ -139,7 +146,7 @@ public class CustomParticleRenderer {
         }
     }
 
-    private static void renderMarkersAndCircles(WorldRenderContext context, MatrixStack matrices, Vec3d cameraPos) {
+    private static void renderMarkersAndCircles(VertexConsumerProvider consumers, MatrixStack matrices, Vec3d cameraPos) {
         for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
             double distSq = marker.position.squaredDistanceTo(cameraPos);
             if (distSq > 1024 * 1024) continue;
@@ -167,12 +174,6 @@ public class CustomParticleRenderer {
 
             matrices.push();
             matrices.translate(x, y, z);
-
-            VertexConsumerProvider consumers = context.consumers();
-            if (consumers == null) {
-                matrices.pop();
-                continue;
-            }
 
             VertexConsumer buffer = consumers.getBuffer(RenderLayer.getDebugQuads());
 

@@ -23,6 +23,26 @@ public class OverlayRenderer {
         this.textureManager = textureManager;
     }
 
+    /**
+     * Gets a VertexConsumerProvider that is safe to use for rendering.
+     * In 1.21.10, context.consumers() is always available during AFTER_ENTITIES.
+     * In 1.21.11, context.consumers() may be null in certain render passes.
+     * This method falls back to the entity vertex consumers from Minecraft's
+     * buffer builder storage, which is always available.
+     */
+    private VertexConsumerProvider getSafeConsumers(WorldRenderContext context) {
+        VertexConsumerProvider consumers = context.consumers();
+        if (consumers != null) {
+            return consumers;
+        }
+        // Fallback for 1.21.11+ where context.consumers() can be null
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.getBufferBuilders() != null) {
+            return client.getBufferBuilders().getEntityVertexConsumers();
+        }
+        return null;
+    }
+
     public void render(WorldRenderContext context) {
         Map<String, OverlayData.ImageOverlay> overlays = storage.getLoadedOverlays();
         if (overlays.isEmpty()) return;
@@ -30,7 +50,7 @@ public class OverlayRenderer {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.world == null || client.player == null) return;
 
-        VertexConsumerProvider consumers = context.consumers();
+        VertexConsumerProvider consumers = getSafeConsumers(context);
         if (consumers == null) return;
 
         Camera camera = client.gameRenderer.getCamera();
