@@ -33,6 +33,8 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.*;
 
+import com.boshys.bteutils.console.ConsoleMessageConfig;
+import com.boshys.bteutils.console.ConsoleMessageDetector;
 public class BoshysBTEUtils implements ClientModInitializer {
 
     public static BoshysBTEUtils INSTANCE;
@@ -86,8 +88,25 @@ public class BoshysBTEUtils implements ClientModInitializer {
     private int tpllCooldownTicks = 0;
     private static final int TPLL_COOLDOWN_MAX = 60;
     private boolean waitingForTeleport = false;
+
+    // Global teleport cooldown - shared across ALL detection methods to prevent duplicate markers
+    private long lastTeleportMarkerTime = 0;
+    private static final long TELEPORT_MARKER_COOLDOWN_MS = 1500;
     // Flag to prevent mixin from double-processing keybind-sent commands
     public static boolean keybindCommandBeingSent = false;
+
+    // Manual TPLL WorldEdit lines state (queue-based for ordered execution)
+    private boolean manualTpllWeActive = false;
+    private boolean manualTpllWeFirstPoint = true;
+    private int manualTpllWeCooldown = 0;
+    private static final int MANUAL_TPLL_WE_COOLDOWN = 3;
+
+    // Command queue for ordered WorldEdit line execution
+    private final List<String> manualWeCommandQueue = new ArrayList<>();
+    private int manualWeCommandIndex = 0;
+    private boolean manualWeWaitingForCommand = false;
+    private int manualWeCommandTickCounter = 0;
+    private static final int MANUAL_WE_COMMAND_DELAY = 1; // 1 tick between commands
 
 
     private String lastCommandSent = "";
@@ -97,6 +116,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
     // Components
     private MarkerStorage markerStorage;
     private KmlImportHandler kmlImportHandler;
+
+    // Console message detection components
+    private ConsoleMessageConfig consoleMessageConfig;
+    private ConsoleMessageDetector consoleMessageDetector;
 
     // Overlay components
     private static OverlayStorage overlayStorage;
@@ -117,6 +140,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
         overlayStorage = new OverlayStorage();
         overlayTextureManager = new OverlayTextureManager();
         overlayRenderer = new OverlayRenderer(overlayStorage, overlayTextureManager);
+
+        // Initialize console message detection
+        consoleMessageConfig = new ConsoleMessageConfig();
+        consoleMessageDetector = new ConsoleMessageDetector(consoleMessageConfig);
+        consoleMessageDetector.install();
 
         registerKeybindings();
         registerEvents();
@@ -198,6 +226,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
             kmlImportHandler.tick(client);
             markerStorage.tickAutosave();
+            tickManualWeCommandQueue(client);
+
+            // Process console message detector pending markers
+            if (consoleMessageDetector != null) {
+                consoleMessageDetector.processPendingMarkers(client);
+            }
 
             if (selectionCooldown > 0) {
                 selectionCooldown--;
@@ -382,6 +416,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
             return;
         }
 
+        // Decrement manual TPLL WE lines cooldown
+        if (manualTpllWeCooldown > 0) {
+            manualTpllWeCooldown--;
+        }
+
         if (!waitingForTeleport && commandCooldownTicks == 0) return;
 
         if (tpllCooldownTicks > 0) {
@@ -416,11 +455,25 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     return;
                 }
 
+                // Check global cooldown to prevent duplicates from chat/console detection
+                if (!tryPlaceTeleportMarker()) {
+                    System.out.println("[Boshys-bt-utils] Movement-based marker suppressed by global cooldown (already placed by chat/console detection)");
+                    waitingForTeleport = false;
+                    commandCooldownTicks = 0;
+                    lastCommandSent = "";
+                    return;
+                }
+
                 MarkerData.TeleportMarker newMarker = MarkerData.addMarker(new Vec3d(currentX, currentY, currentZ));
                 System.out.println("[Boshys-bt-utils] Marker placed at: " + currentX + ", " + currentY + ", " + currentZ);
 
                 if (config.enableAutoLineConnection) {
                     MarkerData.handleAutoConnect(newMarker);
+                }
+
+                // Handle auto WorldEdit lines on TPLL
+                if (config.enableAutoWorldEditLinesOnTpll && client.player != null) {
+                    handleManualTpllWeLines(client);
                 }
 
                 waitingForTeleport = false;
@@ -716,6 +769,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
             return;
         }
 
+        if (markersHidden) {
+            System.out.println("[Boshys-bt-utils] Markers are temporarily hidden, skipping TPLL marker detection");
+            return;
+        }
+
         BoshysBTEUtilsConfig.TpllMarkerMode mode = config.tpllMarkerMode;
         System.out.println("[Boshys-bt-utils] Current TpllMarkerMode: " + mode);
 
@@ -755,6 +813,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
             return;
         }
 
+        if (markersHidden) {
+            return;
+        }
+
         double distanceMoved = Math.sqrt(
                 Math.pow(newX - oldX, 2) +
                         Math.pow(newY - oldY, 2) +
@@ -778,6 +840,113 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
     }
 
+    /**
+     * Handles automatic WorldEdit line creation on each manual/keybind TPLL teleport.
+     * Sequence:
+     * - First TPLL: //sel, //sel cuboid, //pos1
+     * - Second TPLL: //pos2, //line <block>, //pos1
+     * - Third+ TPLL: same as second
+     */
+    private void handleManualTpllWeLines(MinecraftClient client) {
+        if (client.player == null) return;
+        if (manualTpllWeCooldown > 0) return;
+
+        String block = config.worldEditLineBlock;
+
+        if (!manualTpllWeActive) {
+            // First TPLL ever with this feature - queue full setup + first point
+            manualTpllWeActive = true;
+            manualTpllWeFirstPoint = true;
+
+            // Build command queue: //sel -> //sel cuboid -> //pos1
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/sel");
+            manualWeCommandQueue.add("/sel cuboid");
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: First TPLL - queued //sel, //sel cuboid, //pos1");
+        } else if (manualTpllWeFirstPoint) {
+            // Second TPLL - queue: //pos2 -> //line <block> -> //pos1
+            manualTpllWeFirstPoint = false;
+
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Second TPLL - queued //pos2, //line " + block + ", //pos1");
+        } else {
+            // Third+ TPLL - queue: //pos2 -> //line <block> -> //pos1
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Manual TPLL WE: Nth TPLL - queued //pos2, //line " + block + ", //pos1");
+        }
+    }
+
+    /**
+     * Processes the manual WorldEdit command queue with 1-tick delays between commands.
+     * Called from the client tick event.
+     */
+    private void tickManualWeCommandQueue(MinecraftClient client) {
+        if (!manualWeWaitingForCommand || client.player == null) return;
+
+        if (manualWeCommandTickCounter > 0) {
+            manualWeCommandTickCounter--;
+            return;
+        }
+
+        if (manualWeCommandIndex >= manualWeCommandQueue.size()) {
+            manualWeWaitingForCommand = false;
+            manualWeCommandIndex = 0;
+            return;
+        }
+
+        String command = manualWeCommandQueue.get(manualWeCommandIndex);
+        manualWeCommandIndex++;
+
+        client.player.networkHandler.sendChatCommand(command);
+        manualWeCommandTickCounter = MANUAL_WE_COMMAND_DELAY;
+
+        System.out.println("[Boshys-bt-utils] Manual TPLL WE: Sent command " + manualWeCommandIndex + "/" + manualWeCommandQueue.size() + ": " + command);
+    }
+
+    /**
+     * Resets the manual TPLL WorldEdit lines sequence.
+     * Called by /boshys-bt-utils resetManualTpllLinesSequence
+     */
+    public void resetManualTpllWeLinesSequence() {
+        manualTpllWeActive = false;
+        manualTpllWeFirstPoint = true;
+        manualTpllWeCooldown = 0;
+        manualWeCommandQueue.clear();
+        manualWeCommandIndex = 0;
+        manualWeWaitingForCommand = false;
+        manualWeCommandTickCounter = 0;
+        System.out.println("[Boshys-bt-utils] Manual TPLL WE lines sequence reset");
+    }
+
+    /**
+     * Resets the auto WorldEdit lines state. Called when markers are cleared or hidden.
+     */
+    public void resetAutoWeLinesState() {
+        resetManualTpllWeLinesSequence();
+    }
+
     public static void hideAllMarkers() {
         if (markersHidden) return;
 
@@ -793,6 +962,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
         markerConnections.clear();
         selectedMarkers.clear();
         lastAddedMarker = null;
+
+        // Reset manual TPLL WE lines state when markers are hidden
+        if (INSTANCE != null) {
+            INSTANCE.resetAutoWeLinesState();
+            INSTANCE.resetTeleportMarkerCooldown();
+        }
 
         markersHidden = true;
         hideWarningShown = false;
@@ -813,6 +988,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
         hiddenConnections.clear();
         hiddenSelectedMarkers.clear();
         hiddenLastAddedMarker = null;
+
+        // Reset manual TPLL WE lines state when markers are shown
+        if (INSTANCE != null) {
+            INSTANCE.resetAutoWeLinesState();
+        }
 
         markersHidden = false;
         hideWarningShown = false;
@@ -848,5 +1028,134 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     public static OverlayTextureManager getOverlayTextureManager() {
         return overlayTextureManager;
+    }
+
+    public ConsoleMessageConfig getConsoleMessageConfig() {
+        return consoleMessageConfig;
+    }
+
+    public ConsoleMessageDetector getConsoleMessageDetector() {
+        return consoleMessageDetector;
+    }
+
+    /**
+     * Handles auto WorldEdit lines triggered from console message detection.
+     * This is called from ConsoleMessageDetector when a teleport message is detected.
+     */
+    public void handleAutoWeLinesFromConsole(MinecraftClient client) {
+        if (client.player == null) return;
+        if (manualTpllWeCooldown > 0) return;
+
+        String block = config.worldEditLineBlock;
+
+        if (!manualTpllWeActive) {
+            manualTpllWeActive = true;
+            manualTpllWeFirstPoint = true;
+
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/sel");
+            manualWeCommandQueue.add("/sel cuboid");
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Console WE: First detection - queued setup + pos1");
+        } else if (manualTpllWeFirstPoint) {
+            manualTpllWeFirstPoint = false;
+
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Console WE: Second detection - queued pos2, line, pos1");
+        } else {
+            manualWeCommandQueue.clear();
+            manualWeCommandQueue.add("/pos2");
+            manualWeCommandQueue.add("/line " + block);
+            manualWeCommandQueue.add("/pos1");
+            manualWeCommandIndex = 0;
+            manualWeWaitingForCommand = true;
+            manualWeCommandTickCounter = 0;
+
+            manualTpllWeCooldown = MANUAL_TPLL_WE_COOLDOWN;
+            System.out.println("[Boshys-bt-utils] Console WE: Nth detection - queued pos2, line, pos1");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Console-based teleport detection
+    // Called from ConsoleMessageDetector when a pattern is matched.
+    // Sets up the same movement-based detection that the keybind uses.
+    // ------------------------------------------------------------------
+
+    /**
+     * Called from ConsoleMessageDetector when a "Teleported to" pattern is detected
+     * in console output. Saves the current position and enables movement-based detection
+     * so the marker is placed AFTER the player actually arrives.
+     */
+    public void triggerConsoleTeleportDetection(MinecraftClient client) {
+        if (client.player == null) return;
+        if (markersHidden) return;
+        if (!config.enableMarkers) return;
+
+        // Check global cooldown to prevent duplicates
+        if (isTeleportMarkerOnCooldown()) {
+            System.out.println("[Boshys-bt-utils] Console teleport detection suppressed by global cooldown");
+            return;
+        }
+
+        // Save current position (before teleport completes)
+        posXBeforeTpll = client.player.getX();
+        posYBeforeTpll = client.player.getY();
+        posZBeforeTpll = client.player.getZ();
+
+        // Enable movement-based detection (same as keybind)
+        waitingForTeleport = true;
+        tpllCooldownTicks = TPLL_COOLDOWN_MAX;
+        commandCooldownTicks = COMMAND_COOLDOWN_MAX;
+        lastCommandSent = "console-detection";
+
+        System.out.println("[Boshys-bt-utils] Console teleport detection triggered. Waiting for movement...");
+    }
+
+    // ------------------------------------------------------------------
+    // Global teleport marker cooldown - prevents duplicate markers from
+    // multiple detection methods (command packet, chat mixin, console)
+    // firing for the same teleport event.
+    // ------------------------------------------------------------------
+
+    /**
+     * Checks if enough time has passed since the last teleport marker was placed.
+     * If not, returns false and the caller should skip placing a marker.
+     * If yes, updates the timestamp and returns true.
+     */
+    public boolean tryPlaceTeleportMarker() {
+        long now = System.currentTimeMillis();
+        if (now - lastTeleportMarkerTime < TELEPORT_MARKER_COOLDOWN_MS) {
+            return false; // Too soon - duplicate suppressed
+        }
+        lastTeleportMarkerTime = now;
+        return true;
+    }
+
+    /**
+     * Returns true if the teleport marker cooldown is currently active.
+     */
+    public boolean isTeleportMarkerOnCooldown() {
+        return System.currentTimeMillis() - lastTeleportMarkerTime < TELEPORT_MARKER_COOLDOWN_MS;
+    }
+
+    /**
+     * Resets the teleport marker cooldown. Call when markers are cleared/hidden.
+     */
+    public void resetTeleportMarkerCooldown() {
+        lastTeleportMarkerTime = 0;
     }
 }

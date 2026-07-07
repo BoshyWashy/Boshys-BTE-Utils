@@ -593,6 +593,11 @@ public class KmlImportHandler {
             return 0;
         }
 
+        if (BoshysBTEUtils.markersHidden) {
+            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+            return 0;
+        }
+
         if (isKmlImporting || kmlImportWaitingToStart) {
             source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.in_progress"));
             return 0;
@@ -684,6 +689,11 @@ public class KmlImportHandler {
     public int importMultipleKmlFiles(FabricClientCommandSource source, List<String> filenames) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
             source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+            return 0;
+        }
+
+        if (BoshysBTEUtils.markersHidden) {
+            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
             return 0;
         }
 

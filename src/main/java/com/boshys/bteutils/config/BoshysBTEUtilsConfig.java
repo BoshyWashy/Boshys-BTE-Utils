@@ -135,6 +135,11 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @Comment("Block to use for WorldEdit lines (default: diamond_block)")
     public String worldEditLineBlock = "diamond_block";
 
+    // Auto WorldEdit Lines on TPLL Settings
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Enable automatic WorldEdit line creation on every TPLL (keybind or manual)")
+    public boolean enableAutoWorldEditLinesOnTpll = false;
+
     /**
      * TPLL marker mode enum - controls when auto-markers are placed
      */
@@ -222,6 +227,10 @@ public class BoshysBTEUtilsConfig implements ConfigData {
             worldEditLineBlock = "diamond_block";
         }
         worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\s+", "_");
+
+        // Validate overlay render distance (-1 = simulation distance, 0 = unlimited, max 64 chunks)
+        if (overlayRenderDistance < -1) overlayRenderDistance = -1;
+        if (overlayRenderDistance > 64) overlayRenderDistance = 64;
 
         // Validate overlay render distance (-1 = simulation distance, 0 = unlimited, max 64 chunks)
         if (overlayRenderDistance < -1) overlayRenderDistance = -1;
