@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "boshysbteutils",
-  "version": "2.0-BETA.4",
+  "version": "2.1",
   "name": "Boshys BTE Utils",
   "description": "Adds a keybind for TPLL, along with markers to place down and keep track of where you have previously TPLLed to.",
   "authors": ["BoshyWashy"],
@@ -19,7 +19,7 @@
   "depends": {
     "fabricloader": ">=0.16.0",
     "fabric-api": "*",
-    "minecraft": ">=1.21.10 <1.22",
+    "minecraft": "=1.21.10",
     "cloth-config": "*"
   },
   "suggests": {
