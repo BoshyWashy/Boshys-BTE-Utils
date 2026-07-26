@@ -128,13 +128,18 @@ public class CommandRegistry {
         // ── deselect ─────────────────────────────────────────────────────────
         root.then(ClientCommandManager.literal("deselect")
                 .executes(context -> {
-                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                    int markerCount = BoshysBTEUtils.selectedMarkers.size();
+                    int lineCount = BoshysBTEUtils.selectedConnections.size();
+                    if (markerCount == 0 && lineCount == 0) {
                         context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.deselect.none"));
                         return 0;
                     }
-                    int count = BoshysBTEUtils.selectedMarkers.size();
                     BoshysBTEUtils.selectedMarkers.clear();
-                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.deselected.all", count));
+                    BoshysBTEUtils.selectedConnections.clear();
+                    // Clear lastAutoConnectMarker so next placed marker won't auto-connect
+                    // to the previously deselected marker
+                    BoshysBTEUtils.lastAutoConnectMarker = null;
+                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.deselected.all", markerCount + lineCount));
                     return 1;
                 }));
 
@@ -171,6 +176,17 @@ public class CommandRegistry {
 
         // ── tempHide ─────────────────────────────────────────────────────────
         root.then(ClientCommandManager.literal("tempHide")
+                .executes(context -> {
+                    // Toggle mode: no argument provided
+                    if (BoshysBTEUtils.markersHidden) {
+                        BoshysBTEUtils.showAllMarkers();
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.shown"));
+                    } else {
+                        BoshysBTEUtils.hideAllMarkers();
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.hidden"));
+                    }
+                    return 1;
+                })
                 .then(ClientCommandManager.argument("hide", BoolArgumentType.bool())
                         .executes(context -> {
                             boolean shouldHide = BoolArgumentType.getBool(context, "hide");
@@ -192,36 +208,8 @@ public class CommandRegistry {
                             return 1;
                         })));
 
-        // ── updateMarkerDesign ───────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("updateMarkerDesign")
-                .executes(context -> {
-                    if (BoshysBTEUtils.markersHidden) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                        return 0;
-                    }
-                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
-                        return 0;
-                    }
-                    if (BoshysBTEUtils.markers.isEmpty()) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.no_markers"));
-                        return 0;
-                    }
-                    if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                        int n = 0;
-                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.selectedMarkers) {
-                            com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
-                        }
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated.selected", n));
-                    } else {
-                        int n = 0;
-                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
-                            com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
-                        }
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated", n));
-                    }
-                    return 1;
-                }));
+        // ── customise ────────────────────────────────────────────────────────
+        root.then(CustomiseCommands.build());
 
         // ── moveMarker ───────────────────────────────────────────────────────
         root.then(ClientCommandManager.literal("moveMarker")
@@ -396,16 +384,7 @@ public class CommandRegistry {
                         })));
 
         // ── importMultipleKMLs ───────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("importMultipleKMLs")
-                .executes(context -> {
-                    if (BoshysBTEUtils.markersHidden) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                        return 0;
-                    }
-                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
-                    return 0;
-                })
-                .then(buildImportMultipleKmls()));
+        root.then(buildImportMultipleKmls());
 
         // ── stopImport ───────────────────────────────────────────────────────
         // Stops any active KML import or queued imports immediately.
@@ -548,6 +527,9 @@ public class CommandRegistry {
         // ── overlay ──────────────────────────────────────────────────────────
         root.then(new OverlayCommands(overlayStorage).build());
 
+        // ── customise ────────────────────────────────────────────────────────
+        root.then(CustomiseCommands.build());
+
         dispatcher.register(root);
     }
 
@@ -637,7 +619,16 @@ public class CommandRegistry {
                 .executes(ctx -> executeMultipleKmlImport(ctx, 1))
                 .then(file2);
 
-        return ClientCommandManager.literal("importMultipleKMLs").then(file1);
+        return ClientCommandManager.literal("importMultipleKMLs")
+                .executes(context -> {
+                    if (BoshysBTEUtils.markersHidden) {
+                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                        return 0;
+                    }
+                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
+                    return 0;
+                })
+                .then(file1);
     }
 
     // -----------------------------------------------------------------------

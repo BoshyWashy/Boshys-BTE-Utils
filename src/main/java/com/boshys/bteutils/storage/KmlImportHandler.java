@@ -157,8 +157,8 @@ public class KmlImportHandler {
             if (teleportCheckTicks % 20 == 0) { // Update every second
                 showImportTitle(client,
                         Text.translatable("command.boshysbteutils.kml.import.title.active").getString(),
-                        Text.translatable("command.boshysbteutils.kml.import.progress.detailed",
-                                kmlCurrentPointIndex + 1, pendingKmlPoints.size(), (int)distanceMoved).getString()
+                        Text.translatable("command.boshysbteutils.kml.import.progress",
+                                kmlCurrentPointIndex + 1, pendingKmlPoints.size()).getString()
                 );
             }
 
@@ -466,8 +466,10 @@ public class KmlImportHandler {
                 new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ())
         );
 
-        // Auto-connect with previous marker
-        if (BoshysBTEUtils.lastAddedMarker != null && BoshysBTEUtils.lastAddedMarker != newMarker) {
+        // Auto-connect with previous marker only if auto-line-connection is enabled
+        if (BoshysBTEUtils.getConfig().enableAutoLineConnection
+                && BoshysBTEUtils.lastAddedMarker != null
+                && BoshysBTEUtils.lastAddedMarker != newMarker) {
             MarkerData.connectMarkers(BoshysBTEUtils.lastAddedMarker, newMarker);
         }
 
@@ -658,6 +660,12 @@ public class KmlImportHandler {
         isProcessingQueue = false;
         kmlFileQueue.clear();
 
+        // FIX: Reset marker connection state to prevent spurious connections
+        // between consecutive KML imports
+        BoshysBTEUtils.lastAddedMarker = null;
+        BoshysBTEUtils.lastAutoConnectMarker = null;
+        BoshysBTEUtils.selectedMarkers.clear();
+
         kmlImportWaitingToStart = true;
         kmlImportStartDelayTicks = BoshysBTEUtils.getConfig().kmlImportStartDelaySeconds * 20;
 
@@ -789,6 +797,12 @@ public class KmlImportHandler {
         positionBeforeTpll = null;
         lastCheckedPosition = null;
 
+        // FIX: Reset marker connection state for each queued file import
+        // to prevent spurious connections between files
+        BoshysBTEUtils.lastAddedMarker = null;
+        BoshysBTEUtils.lastAutoConnectMarker = null;
+        BoshysBTEUtils.selectedMarkers.clear();
+
         kmlImportWaitingToStart = true;
         kmlImportStartDelayTicks = BoshysBTEUtils.getConfig().kmlImportStartDelaySeconds * 20;
 
@@ -835,6 +849,12 @@ public class KmlImportHandler {
             );
         }
 
+        // FIX: Reset marker connection state when import finishes to prevent
+        // spurious connections on the next import
+        BoshysBTEUtils.lastAddedMarker = null;
+        BoshysBTEUtils.lastAutoConnectMarker = null;
+        BoshysBTEUtils.selectedMarkers.clear();
+
         pendingKmlPoints.clear();
         kmlCurrentPointIndex = 0;
         kmlPostCommandIndex = 0;
@@ -878,6 +898,11 @@ public class KmlImportHandler {
                         true
                 );
             }
+
+            // FIX: Reset marker connection state when queue finishes completely
+            BoshysBTEUtils.lastAddedMarker = null;
+            BoshysBTEUtils.lastAutoConnectMarker = null;
+            BoshysBTEUtils.selectedMarkers.clear();
 
             pendingKmlPoints.clear();
             kmlCurrentPointIndex = 0;
@@ -972,6 +997,11 @@ public class KmlImportHandler {
         positionBeforeTpll = null;
         lastCheckedPosition = null;
 
+        // FIX: Reset marker connection state for each queued file import
+        BoshysBTEUtils.lastAddedMarker = null;
+        BoshysBTEUtils.lastAutoConnectMarker = null;
+        BoshysBTEUtils.selectedMarkers.clear();
+
         // Don't use start delay between queued files
         kmlImportWaitingToStart = false;
         isKmlImporting = true;
@@ -1004,7 +1034,7 @@ public class KmlImportHandler {
 
             while (matcher.find()) {
                 String coordBlock = matcher.group(1).trim();
-                String[] coordEntries = coordBlock.split("\s+");
+                String[] coordEntries = coordBlock.split("\\s+");
 
                 for (String entry : coordEntries) {
                     entry = entry.trim();
@@ -1036,7 +1066,7 @@ public class KmlImportHandler {
 
             while (gxMatcher.find()) {
                 String coordEntry = gxMatcher.group(1).trim();
-                String[] parts = coordEntry.split("\s+");
+                String[] parts = coordEntry.split("\\s+");
 
                 if (parts.length >= 2) {
                     try {

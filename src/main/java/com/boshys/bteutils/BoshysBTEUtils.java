@@ -57,11 +57,17 @@ public class BoshysBTEUtils implements ClientModInitializer {
     public static final List<MarkerData.MarkerConnection> markerConnections = new ArrayList<>();
     public static final Set<MarkerData.TeleportMarker> selectedMarkers = new HashSet<>();
     public static MarkerData.TeleportMarker lastAddedMarker = null;
+    /** The last marker placed that auto-line connection should connect to. */
+    public static MarkerData.TeleportMarker lastAutoConnectMarker = null;
+
+    // Selected connections (for line deletion)
+    public static final Set<MarkerData.MarkerConnection> selectedConnections = new HashSet<>();
 
     // Hidden markers storage
     public static final List<MarkerData.TeleportMarker> hiddenMarkers = new ArrayList<>();
     public static final List<MarkerData.MarkerConnection> hiddenConnections = new ArrayList<>();
     public static final Set<MarkerData.TeleportMarker> hiddenSelectedMarkers = new HashSet<>();
+    public static final Set<MarkerData.MarkerConnection> hiddenSelectedConnections = new HashSet<>();
     public static MarkerData.TeleportMarker hiddenLastAddedMarker = null;
     public static boolean markersHidden = false;
     public static boolean hideWarningShown = false;
@@ -248,7 +254,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
             handleKeybinds(client);
 
             if (!handleOverlayCornerSelection(client)) {
-                handleMarkerSelection(client);
+                handleMarkerAndLineSelection(client);
             }
         });
     }
@@ -364,6 +370,18 @@ public class BoshysBTEUtils implements ClientModInitializer {
                 continue;
             }
 
+            // Delete selected connections first (lines)
+            if (!selectedConnections.isEmpty()) {
+                int count = selectedConnections.size();
+                for (MarkerData.MarkerConnection conn : new ArrayList<>(selectedConnections)) {
+                    MarkerData.disconnectMarkers(conn.marker1, conn.marker2);
+                }
+                selectedConnections.clear();
+                notifyActionBar(client, "command.boshysbteutils.line.deleted", count);
+                continue;
+            }
+
+            // Then delete selected markers
             if (!selectedMarkers.isEmpty()) {
                 int count = selectedMarkers.size();
                 for (MarkerData.TeleportMarker marker : new ArrayList<>(selectedMarkers)) {
@@ -612,7 +630,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
         notifyActionBar(client, "command.boshysbteutils.overlay.nudged", type, dx, dy, dz);
     }
 
-    private void handleMarkerSelection(MinecraftClient client) {
+    /**
+     * Handles selection of both markers and line connections.
+     * Lines can be selected by raycasting against them when nearby.
+     */
+    private void handleMarkerAndLineSelection(MinecraftClient client) {
         if (client.player == null || client.world == null) return;
 
         if (markersHidden) return;
@@ -633,40 +655,49 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
         Vec3d endPos = eyePos.add(lookVec.x * reachDistance, lookVec.y * reachDistance, lookVec.z * reachDistance);
 
+        long windowHandle = client.getWindow().getHandle();
+        boolean ctrlPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
+                GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS ||
+                GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS ||
+                GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS;
+
+        boolean shiftPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
+                GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+
+        boolean multiSelect = ctrlPressed || shiftPressed;
+
+        // First, try to select a marker
         MarkerData.TeleportMarker hitMarker = null;
-        double closestDist = Double.MAX_VALUE;
+        double closestMarkerDist = Double.MAX_VALUE;
 
         for (MarkerData.TeleportMarker marker : markers) {
-            float scale = marker.scale * 2;
+            // Use a consistent hitbox size regardless of marker scale for reliable selection
+            // The visual scale can vary, but the selection hitbox stays reasonable
+            float hitboxScale = Math.max(0.2f, marker.scale * 1.5f);
             Box hitbox = new Box(
-                    marker.position.x - scale, marker.position.y - scale, marker.position.z - scale,
-                    marker.position.x + scale, marker.position.y + scale, marker.position.z + scale
+                    marker.position.x - hitboxScale, marker.position.y - hitboxScale, marker.position.z - hitboxScale,
+                    marker.position.x + hitboxScale, marker.position.y + hitboxScale, marker.position.z + hitboxScale
             );
 
             Optional<Vec3d> hitResult = hitbox.raycast(eyePos, endPos);
             if (hitResult.isPresent()) {
                 double dist = eyePos.squaredDistanceTo(hitResult.get());
-                if (dist < closestDist) {
-                    closestDist = dist;
+                if (dist < closestMarkerDist) {
+                    closestMarkerDist = dist;
                     hitMarker = marker;
                 }
             }
         }
 
         if (hitMarker != null) {
-            long windowHandle = client.getWindow().getHandle();
-            boolean ctrlPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
-                    GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS ||
-                    GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS ||
-                    GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS;
-
-            boolean shiftPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
-                    GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
-
-            boolean multiSelect = ctrlPressed || shiftPressed;
+            // Clear line selection when selecting a marker
+            selectedConnections.clear();
 
             if (selectedMarkers.contains(hitMarker)) {
                 selectedMarkers.remove(hitMarker);
+                if (lastAutoConnectMarker == hitMarker) {
+                    lastAutoConnectMarker = null;
+                }
                 if (selectedMarkers.isEmpty()) {
                     notifyActionBar(client, "command.boshysbteutils.marker.deselected.none");
                 } else {
@@ -677,15 +708,21 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     MarkerData.TeleportMarker selectedMarker = selectedMarkers.iterator().next();
 
                     if (selectedMarker == hitMarker) {
+                        // This shouldn't happen due to the contains check above, but handle it
                         selectedMarkers.clear();
+                        if (lastAutoConnectMarker == hitMarker) {
+                            lastAutoConnectMarker = null;
+                        }
                         notifyActionBar(client, "command.boshysbteutils.marker.deselected.single");
                     } else if (MarkerData.areMarkersConnected(selectedMarker, hitMarker)) {
                         MarkerData.disconnectMarkers(selectedMarker, hitMarker);
                         selectedMarkers.clear();
+                        lastAutoConnectMarker = null;
                         notifyActionBar(client, "command.boshysbteutils.marker.disconnected");
                     } else {
                         MarkerData.connectMarkers(selectedMarker, hitMarker);
                         selectedMarkers.clear();
+                        lastAutoConnectMarker = null;
                         notifyActionBar(client, "command.boshysbteutils.marker.connected");
                     }
                 } else {
@@ -706,7 +743,94 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     }
                 }
             }
+            return;
         }
+
+        // If no marker hit, try to select a line connection
+        MarkerData.MarkerConnection hitConnection = null;
+        double closestLineDistSq = Double.MAX_VALUE;
+        double lineHitThresholdSq = 0.15 * 0.15; // Tight threshold for precise selection
+
+        for (MarkerData.MarkerConnection conn : markerConnections) {
+            // Compute closest distance from the look ray to the line segment
+            Double distSq = rayToLineSegmentDistSq(eyePos, endPos, conn.marker1.position, conn.marker2.position);
+            if (distSq != null && distSq < lineHitThresholdSq && distSq < closestLineDistSq) {
+                closestLineDistSq = distSq;
+                hitConnection = conn;
+            }
+        }
+
+        if (hitConnection != null) {
+            if (selectedConnections.contains(hitConnection)) {
+                // Toggle off if already selected (even in multi-select mode)
+                selectedConnections.remove(hitConnection);
+                if (!multiSelect) {
+                    selectedMarkers.clear();
+                }
+                notifyActionBar(client, "command.boshysbteutils.line.deselected");
+            } else {
+                if (!multiSelect) {
+                    selectedConnections.clear();
+                    selectedMarkers.clear();
+                }
+                selectedConnections.add(hitConnection);
+                notifyActionBar(client, "command.boshysbteutils.line.selected");
+            }
+            return;
+        }
+
+        // If nothing was hit and not multi-selecting, deselect everything
+        if (!multiSelect) {
+            if (!selectedMarkers.isEmpty() || !selectedConnections.isEmpty()) {
+                selectedMarkers.clear();
+                selectedConnections.clear();
+                notifyActionBar(client, "command.boshysbteutils.marker.deselected.none");
+            }
+        }
+    }
+
+    /**
+     * Computes the squared distance from a ray (eyePos -> endPos) to a line segment.
+     * Returns null if the closest approach is outside the segment or ray bounds.
+     */
+    private Double rayToLineSegmentDistSq(Vec3d rayStart, Vec3d rayEnd, Vec3d lineStart, Vec3d lineEnd) {
+        Vec3d rayDir = rayEnd.subtract(rayStart);
+        Vec3d lineDir = lineEnd.subtract(lineStart);
+        Vec3d diff = rayStart.subtract(lineStart);
+
+        double rayLenSq = rayDir.lengthSquared();
+        double lineLenSq = lineDir.lengthSquared();
+
+        if (rayLenSq < 0.0001 || lineLenSq < 0.0001) return null;
+
+        double a = rayDir.dotProduct(rayDir);   // always >= 0
+        double b = rayDir.dotProduct(lineDir);
+        double c = lineDir.dotProduct(lineDir); // always >= 0
+        double d = rayDir.dotProduct(diff);
+        double e = lineDir.dotProduct(diff);
+
+        double denom = a * c - b * b;
+
+        double s, t;
+        if (denom < 0.0001) {
+            // Lines are nearly parallel - pick the best endpoint
+            s = 0.0;
+            t = Math.max(0.0, Math.min(1.0, e / c));
+        } else {
+            s = Math.max(0.0, Math.min(1.0, (b * e - c * d) / denom));
+            t = (b * s + e) / c;
+            if (t < 0.0) {
+                t = 0.0;
+                s = Math.max(0.0, Math.min(1.0, -d / a));
+            } else if (t > 1.0) {
+                t = 1.0;
+                s = Math.max(0.0, Math.min(1.0, (b - d) / a));
+            }
+        }
+
+        Vec3d closestOnRay = rayStart.add(rayDir.multiply(s));
+        Vec3d closestOnLine = lineStart.add(lineDir.multiply(t));
+        return closestOnRay.squaredDistanceTo(closestOnLine);
     }
 
     private void sendFirstSelectionMessage(MinecraftClient client) {
@@ -727,12 +851,12 @@ public class BoshysBTEUtils implements ClientModInitializer {
             if (data == null) return null;
 
             String cleaned = data;
-            cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n").trim();
+            cleaned = cleaned.replace("\\r\\n", "\\n").replace("\\r", "\\n").trim();
             int nl = cleaned.indexOf('\n');
             if (nl >= 0) cleaned = cleaned.substring(0, nl).trim();
 
             if (config.formatCoordinates) {
-                cleaned = cleaned.replaceAll("\s*,\s*", ",").replaceAll("\s+", " ");
+                cleaned = cleaned.replaceAll("\\s*,\\s*", ",").replaceAll("\\s+", " ");
             }
 
             return cleaned.isEmpty() ? null : cleaned;
@@ -783,7 +907,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
         }
 
         String lowerCmd = command.toLowerCase().trim();
-        String[] parts = lowerCmd.split("\s+", 2);
+        String[] parts = lowerCmd.split("\\s+", 2);
         String cmdName = parts[0].replace("/", "");
 
         System.out.println("[Boshys-bt-utils] Parsed command name: " + cmdName + " | prefix: " + config.commandPrefix.toLowerCase());
@@ -956,12 +1080,16 @@ public class BoshysBTEUtils implements ClientModInitializer {
         hiddenConnections.addAll(markerConnections);
         hiddenSelectedMarkers.clear();
         hiddenSelectedMarkers.addAll(selectedMarkers);
+        hiddenSelectedConnections.clear();
+        hiddenSelectedConnections.addAll(selectedConnections);
         hiddenLastAddedMarker = lastAddedMarker;
 
         markers.clear();
         markerConnections.clear();
         selectedMarkers.clear();
+        selectedConnections.clear();
         lastAddedMarker = null;
+        lastAutoConnectMarker = null;
 
         // Reset manual TPLL WE lines state when markers are hidden
         if (INSTANCE != null) {
@@ -982,11 +1110,14 @@ public class BoshysBTEUtils implements ClientModInitializer {
         markerConnections.addAll(hiddenConnections);
         selectedMarkers.clear();
         selectedMarkers.addAll(hiddenSelectedMarkers);
+        selectedConnections.clear();
+        selectedConnections.addAll(hiddenSelectedConnections);
         lastAddedMarker = hiddenLastAddedMarker;
 
         hiddenMarkers.clear();
         hiddenConnections.clear();
         hiddenSelectedMarkers.clear();
+        hiddenSelectedConnections.clear();
         hiddenLastAddedMarker = null;
 
         // Reset manual TPLL WE lines state when markers are shown
