@@ -1083,7 +1083,7 @@ public class ModMenuIntegration implements ModMenuApi {
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 400, 145, 20).build());
+            ).dimensions(centerX - 150, startY + 380, 145, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal(kmlAltitudesText),
@@ -1092,7 +1092,7 @@ public class ModMenuIntegration implements ModMenuApi {
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX + 5, startY + 400, 145, 20).build());
+            ).dimensions(centerX + 5, startY + 380, 145, 20).build());
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.literal(lockedText),
@@ -1101,7 +1101,7 @@ public class ModMenuIntegration implements ModMenuApi {
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 380, 145, 20).build());
+            ).dimensions(centerX - 150, startY + 360, 145, 20).build());
 
             String modeDescription = switch(config.kmlAltitudeMode) {
                 case AUTOMATIC -> Text.translatable("gui.boshysbteutils.config.kml.altitude.desc.automatic").getString();
