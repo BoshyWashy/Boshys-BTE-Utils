@@ -27,15 +27,15 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public TpllMarkerMode tpllMarkerMode = TpllMarkerMode.DISABLED;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Marker colour in hex format (default: 0xFF0000 = red)")
+    @Comment("Default marker colour in hex format (default: 0xFF0000 = red)")
     public int markerColour = 0xFF0000;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Marker opacity (0.0 to 1.0, default: 0.8)")
+    @Comment("Default marker opacity (0.0 to 1.0, default: 0.8)")
     public float markerOpacity = 0.8f;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Marker scale/size (default: 0.05 = small cube)")
+    @Comment("Default marker scale/size (default: 0.05 = small cube)")
     public float markerScale = 0.05f;
 
     // Clear Confirmation Settings
@@ -53,15 +53,15 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public boolean enableAutoLineConnection = false;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Line colour in hex format (default: 0x00FF00 = green)")
+    @Comment("Default line colour in hex format (default: 0x00FF00 = green)")
     public int lineColour = 0x00FF00;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Line opacity (0.0 to 1.0, default: 0.6)")
+    @Comment("Default line opacity (0.0 to 1.0, default: 0.6)")
     public float lineOpacity = 0.6f;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Line thickness/width (default: 0.1)")
+    @Comment("Default line thickness/width (default: 0.1)")
     public float lineThickness = 0.1f;
 
     // Circle Settings
@@ -72,6 +72,14 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     @ConfigEntry.Gui.Tooltip
     @Comment("Circle segment size as % of circumference — lower = smoother (default: 1.0 = 100 segments)")
     public float circleSegmentPercent = 1.0f;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Default circle colour in hex format (default: 0x00FF00 = green)")
+    public int circleColour = 0x00FF00;
+
+    @ConfigEntry.Gui.Tooltip
+    @Comment("Default circle opacity (0.0 to 1.0, default: 0.6)")
+    public float circleOpacity = 0.6f;
 
     // Overlay Settings
     @ConfigEntry.Gui.Tooltip
@@ -165,7 +173,7 @@ public class BoshysBTEUtilsConfig implements ConfigData {
         if (commandPrefix == null || commandPrefix.trim().isEmpty()) {
             commandPrefix = "tpll";
         }
-        commandPrefix = commandPrefix.trim().replaceAll("\s+", "");
+        commandPrefix = commandPrefix.trim().replaceAll("\\s+", "");
 
         // Validate marker scale
         if (markerScale < 0.01f) markerScale = 0.01f;
@@ -190,6 +198,14 @@ public class BoshysBTEUtilsConfig implements ConfigData {
         // Validate circle segment percent
         if (circleSegmentPercent < 0.1f) circleSegmentPercent = 0.1f;
         if (circleSegmentPercent > 50.0f) circleSegmentPercent = 50.0f;
+
+        // Validate circle colour
+        if (circleColour < 0) circleColour = 0;
+        if (circleColour > 0xFFFFFF) circleColour = 0xFFFFFF;
+
+        // Validate circle opacity
+        if (circleOpacity < 0.0f) circleOpacity = 0.0f;
+        if (circleOpacity > 1.0f) circleOpacity = 1.0f;
 
         // Validate clear confirmation limit
         if (clearConfirmLimit < 1) clearConfirmLimit = 1;
@@ -226,7 +242,7 @@ public class BoshysBTEUtilsConfig implements ConfigData {
         if (worldEditLineBlock == null || worldEditLineBlock.trim().isEmpty()) {
             worldEditLineBlock = "diamond_block";
         }
-        worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\s+", "_");
+        worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\\s+", "_");
 
         // Validate overlay render distance (-1 = simulation distance, 0 = unlimited, max 64 chunks)
         if (overlayRenderDistance < -1) overlayRenderDistance = -1;

@@ -1,6 +1,6 @@
 package com.boshys.bteutils.overlay;
 
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,10 +19,10 @@ public class OverlayData {
         /** Filename of the image (relative to the images folder, e.g. "mymap.png") */
         public String imageFilename;
         /** Four corners in world space: 0=NW, 1=NE, 2=SE, 3=SW */
-        public Vec3d[] corners;
+        public Vec3[] corners;
         /** Anchor / pivot point. Moving this via commands moves the whole overlay.
          *  Moving this via arrows adjusts the pivot without moving corners. */
-        public Vec3d anchor;
+        public Vec3 anchor;
         /** Whether the overlay image is currently visible */
         public boolean visible;
         /** Whether the image is vertically flipped */
@@ -32,15 +32,15 @@ public class OverlayData {
         /** Per-overlay image opacity (0.0 to 1.0) */
         public float imageOpacity;
 
-        public ImageOverlay(String displayName, String imageFilename, Vec3d anchor, double size) {
+        public ImageOverlay(String displayName, String imageFilename, Vec3 anchor, double size) {
             this.displayName = displayName;
             this.imageFilename = imageFilename;
             this.anchor = anchor;
-            this.corners = new Vec3d[4];
-            this.corners[0] = new Vec3d(anchor.x - size, anchor.y, anchor.z - size); // NW
-            this.corners[1] = new Vec3d(anchor.x + size, anchor.y, anchor.z - size); // NE
-            this.corners[2] = new Vec3d(anchor.x + size, anchor.y, anchor.z + size); // SE
-            this.corners[3] = new Vec3d(anchor.x - size, anchor.y, anchor.z + size); // SW
+            this.corners = new Vec3[4];
+            this.corners[0] = new Vec3(anchor.x - size, anchor.y, anchor.z - size); // NW
+            this.corners[1] = new Vec3(anchor.x + size, anchor.y, anchor.z - size); // NE
+            this.corners[2] = new Vec3(anchor.x + size, anchor.y, anchor.z + size); // SE
+            this.corners[3] = new Vec3(anchor.x - size, anchor.y, anchor.z + size); // SW
             this.visible = true;
             this.flipped = false;
             this.markersVisible = true;
@@ -88,10 +88,10 @@ public class OverlayData {
 
         public ImageOverlay toOverlay() {
             if (corners != null && anchor != null) {
-                Vec3d a = new Vec3d(anchor[0], anchor[1], anchor[2]);
-                Vec3d[] c = new Vec3d[4];
+                Vec3 a = new Vec3(anchor[0], anchor[1], anchor[2]);
+                Vec3[] c = new Vec3[4];
                 for (int i = 0; i < 4; i++) {
-                    c[i] = new Vec3d(corners[i][0], corners[i][1], corners[i][2]);
+                    c[i] = new Vec3(corners[i][0], corners[i][1], corners[i][2]);
                 }
                 ImageOverlay o = new ImageOverlay(displayName, imageFilename, a, 1.0);
                 o.corners = c;
@@ -103,7 +103,7 @@ public class OverlayData {
                 return o;
             } else {
                 // Legacy fallback
-                Vec3d pos = new Vec3d(x, y, z);
+                Vec3 pos = new Vec3(x, y, z);
                 ImageOverlay o = new ImageOverlay(displayName, imageFilename, pos, size > 0 ? size : 10.0);
                 o.visible = visible;
                 o.flipped = flipped;

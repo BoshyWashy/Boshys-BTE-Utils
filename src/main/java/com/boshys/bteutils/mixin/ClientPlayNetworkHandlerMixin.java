@@ -1,10 +1,11 @@
 package com.boshys.bteutils.mixin;
 
 import com.boshys.bteutils.BoshysBTEUtils;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.network.packet.c2s.play.CommandExecutionC2SPacket;
-import net.minecraft.network.packet.s2c.play.PlayerPositionLookS2CPacket;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.network.protocol.game.ServerboundChatCommandPacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
+import net.minecraft.network.protocol.Packet;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -13,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.lang.reflect.Field;
 import java.util.Set;
 
-@Mixin(ClientPlayNetworkHandler.class)
+@Mixin(ClientPacketListener.class)
 public class ClientPlayNetworkHandlerMixin {
 
     // Prevents double-processing when sendChatCommand calls sendPacket internally
@@ -22,7 +23,7 @@ public class ClientPlayNetworkHandlerMixin {
     /**
      * Intercept commands sent via sendChatCommand BEFORE they are packetized.
      * This is the primary interception point for manual /tpll commands.
-     * In 1.21.10, this is more reliable than packet-level interception.
+     * In 26.2, this is more reliable than packet-level interception.
      */
     @Inject(method = "sendChatCommand", at = @At("HEAD"), cancellable = false)
     private void onSendChatCommand(String command, CallbackInfo ci) {
@@ -43,11 +44,11 @@ public class ClientPlayNetworkHandlerMixin {
      * Fallback packet-level interception for commands sent directly as packets.
      * The sendChatCommand injection above handles most cases; this catches edge cases.
      */
-    @Inject(method = "sendPacket", at = @At("HEAD"), cancellable = false)
-    private void onSendPacket(net.minecraft.network.packet.Packet<?> packet, CallbackInfo ci) {
+    @Inject(method = "send(Lnet/minecraft/network/protocol/Packet;)V", at = @At("HEAD"), cancellable = false)
+    private void onSendPacket(Packet<?> packet, CallbackInfo ci) {
         if (processingCommand) return;
         if (BoshysBTEUtils.keybindCommandBeingSent) return;
-        if (packet instanceof CommandExecutionC2SPacket commandPacket) {
+        if (packet instanceof ServerboundChatCommandPacket commandPacket) {
             String command = commandPacket.command();
             if (BoshysBTEUtils.INSTANCE != null) {
                 processingCommand = true;
@@ -60,16 +61,16 @@ public class ClientPlayNetworkHandlerMixin {
         }
     }
 
-    @Inject(method = "onPlayerPositionLook", at = @At("TAIL"))
-    private void onPlayerPositionLook(PlayerPositionLookS2CPacket packet, CallbackInfo ci) {
-        MinecraftClient client = MinecraftClient.getInstance();
+    @Inject(method = "handleMovePlayer", at = @At("TAIL"))
+    private void onPlayerPositionLook(ClientboundPlayerPositionPacket packet, CallbackInfo ci) {
+        Minecraft client = Minecraft.getInstance();
         if (client.player == null || BoshysBTEUtils.INSTANCE == null) return;
 
         if (BoshysBTEUtils.INSTANCE.getKmlImportHandler().isImporting()) {
             try {
                 Class<?> packetClass = packet.getClass();
 
-                // Access private fields using reflection (1.21.10 compatible)
+                // Access private fields using reflection (26.2 compatible)
                 Field xField = packetClass.getDeclaredField("x");
                 Field yField = packetClass.getDeclaredField("y");
                 Field zField = packetClass.getDeclaredField("z");
@@ -108,7 +109,7 @@ public class ClientPlayNetworkHandlerMixin {
 
                 BoshysBTEUtils.INSTANCE.onPlayerTeleported(client, oldX, oldY, oldZ, newX, newY, newZ);
             } catch (Exception e) {
-                // Reflection failed - KML will use 1-tick timeout fallback
+                // Reflection failed - KML will use timeout fallback
             }
         }
     }

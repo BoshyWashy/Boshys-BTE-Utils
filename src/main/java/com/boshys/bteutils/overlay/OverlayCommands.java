@@ -6,12 +6,13 @@ import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import com.mojang.brigadier.arguments.BoolArgumentType;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -66,7 +67,7 @@ public class OverlayCommands {
     }
 
     public LiteralArgumentBuilder<FabricClientCommandSource> build() {
-        return ClientCommandManager.literal("overlay")
+        return ClientCommands.literal("overlay")
                 .then(buildNew())
                 .then(buildLoad())
                 .then(buildHide())
@@ -89,40 +90,40 @@ public class OverlayCommands {
     // Temporarily hide/show overlays (like marker tempHide)
     // ------------------------------------------------------------------
     private LiteralArgumentBuilder<FabricClientCommandSource> buildTempHide() {
-        return ClientCommandManager.literal("tempHide")
-                .then(ClientCommandManager.argument("hide", BoolArgumentType.bool())
+        return ClientCommands.literal("tempHide")
+                .then(ClientCommands.argument("hide", BoolArgumentType.bool())
                         .executes(ctx -> {
                             boolean shouldHide = BoolArgumentType.getBool(ctx, "hide");
                             if (shouldHide) {
                                 if (storage.getTempHiddenOverlays().containsAll(storage.getLoadedOverlays().keySet())
                                         && !storage.getLoadedOverlays().isEmpty()) {
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.temphide.already_hidden_all"));
                                     return 0;
                                 }
                                 int count = storage.tempHideAll();
                                 if (count > 0) {
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.temphide.hidden", count));
                                     return 1;
                                 } else {
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.temphide.none_visible"));
                                     return 0;
                                 }
                             } else {
                                 if (storage.getTempHiddenOverlays().isEmpty()) {
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.temphide.already_shown"));
                                     return 0;
                                 }
                                 int count = storage.tempShowAll();
                                 if (count > 0) {
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.temphide.shown", count));
                                     return 1;
                                 } else {
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.temphide.none_hidden"));
                                     return 0;
                                 }
@@ -131,10 +132,10 @@ public class OverlayCommands {
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildNew() {
-        return ClientCommandManager.literal("new")
-                .then(ClientCommandManager.argument("displayName", StringArgumentType.string())
-                        .then(ClientCommandManager.argument("size", DoubleArgumentType.doubleArg(0.1))
-                                .then(ClientCommandManager.argument("imageFile", StringArgumentType.string())
+        return ClientCommands.literal("new")
+                .then(ClientCommands.argument("displayName", StringArgumentType.string())
+                        .then(ClientCommands.argument("size", DoubleArgumentType.doubleArg(0.1))
+                                .then(ClientCommands.argument("imageFile", StringArgumentType.string())
                                         .suggests(imageFiles())
                                         .executes(ctx -> {
                                             String displayName = StringArgumentType.getString(ctx, "displayName");
@@ -143,7 +144,7 @@ public class OverlayCommands {
 
                                             List<String> available = OverlayStorage.listImageFiles();
                                             if (!available.contains(imageFile)) {
-                                                ctx.getSource().sendFeedback(Text.translatable(
+                                                ctx.getSource().sendFeedback(Component.translatable(
                                                         "command.boshysbteutils.overlay.image_not_found", imageFile));
                                                 return 0;
                                             }
@@ -151,17 +152,17 @@ public class OverlayCommands {
                                             String safeKey = OverlayData.toSafeFilename(displayName);
                                             if (storage.getOverlay(safeKey) != null ||
                                                     OverlayStorage.listSavedOverlayKeys().contains(safeKey)) {
-                                                ctx.getSource().sendFeedback(Text.translatable(
+                                                ctx.getSource().sendFeedback(Component.translatable(
                                                         "command.boshysbteutils.overlay.name_taken", safeKey));
                                                 return 0;
                                             }
 
-                                            ClientPlayerEntity player = ctx.getSource().getPlayer();
-                                            Vec3d pos = new Vec3d(player.getX(), player.getY(), player.getZ());
+                                            LocalPlayer player = ctx.getSource().getPlayer();
+                                            Vec3 pos = new Vec3(player.getX(), player.getY(), player.getZ());
 
                                             storage.createOverlay(displayName, imageFile, pos, size);
 
-                                            ctx.getSource().sendFeedback(Text.translatable(
+                                            ctx.getSource().sendFeedback(Component.translatable(
                                                     "command.boshysbteutils.overlay.created",
                                                     displayName, imageFile,
                                                     String.format("%.1f", size)));
@@ -170,35 +171,35 @@ public class OverlayCommands {
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildLoad() {
-        return ClientCommandManager.literal("load")
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+        return ClientCommands.literal("load")
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(savedOverlays())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name");
                             String safeKey = OverlayData.toSafeFilename(name);
 
                             if (storage.getOverlay(safeKey) != null) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.already_loaded", safeKey));
                                 return 0;
                             }
 
                             OverlayData.ImageOverlay loaded = storage.loadOverlay(safeKey);
                             if (loaded == null) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.not_found", safeKey));
                                 return 0;
                             }
 
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.loaded", loaded.displayName));
                             return 1;
                         }));
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildHide() {
-        return ClientCommandManager.literal("hide")
-                .then(ClientCommandManager.argument("name", StringArgumentType.greedyString())
+        return ClientCommands.literal("hide")
+                .then(ClientCommands.argument("name", StringArgumentType.greedyString())
                         .suggests(loadedOverlaysWithWildcard())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name").trim();
@@ -207,38 +208,38 @@ public class OverlayCommands {
                                 int count = storage.getLoadedOverlays().size();
                                 List<String> keys = List.copyOf(storage.getLoadedOverlays().keySet());
                                 for (String k : keys) storage.unloadOverlay(k);
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.hidden_all", count));
                                 return 1;
                             }
 
                             String safeKey = OverlayData.toSafeFilename(name);
                             if (storage.getOverlay(safeKey) == null) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.not_loaded", safeKey));
                                 return 0;
                             }
 
                             storage.unloadOverlay(safeKey);
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.hidden", safeKey));
                             return 1;
                         }));
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildMoveToPlayer() {
-        return ClientCommandManager.literal("moveToPlayer")
-                .then(ClientCommandManager.argument("name", StringArgumentType.greedyString())
+        return ClientCommands.literal("moveToPlayer")
+                .then(ClientCommands.argument("name", StringArgumentType.greedyString())
                         .suggests(loadedOverlaysWithWildcard())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name").trim();
 
                             if (name.equals("*")) {
-                                ClientPlayerEntity player = ctx.getSource().getPlayer();
-                                Vec3d pos = new Vec3d(player.getX(), player.getY(), player.getZ());
+                                LocalPlayer player = ctx.getSource().getPlayer();
+                                Vec3 pos = new Vec3(player.getX(), player.getY(), player.getZ());
                                 int count = 0;
                                 for (OverlayData.ImageOverlay overlay : storage.getLoadedOverlays().values()) {
-                                    Vec3d delta = pos.subtract(overlay.anchor);
+                                    Vec3 delta = pos.subtract(overlay.anchor);
                                     overlay.anchor = pos;
                                     for (int i = 0; i < 4; i++) {
                                         overlay.corners[i] = overlay.corners[i].add(delta);
@@ -246,7 +247,7 @@ public class OverlayCommands {
                                     storage.saveOverlay(overlay);
                                     count++;
                                 }
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.moved_to_player",
                                         "all overlays",
                                         String.format("%.2f, %.2f, %.2f", pos.x, pos.y, pos.z)));
@@ -257,21 +258,21 @@ public class OverlayCommands {
                             OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
 
                             if (overlay == null) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.not_loaded", safeKey));
                                 return 0;
                             }
 
-                            ClientPlayerEntity player = ctx.getSource().getPlayer();
-                            Vec3d pos = new Vec3d(player.getX(), player.getY(), player.getZ());
-                            Vec3d delta = pos.subtract(overlay.anchor);
+                            LocalPlayer player = ctx.getSource().getPlayer();
+                            Vec3 pos = new Vec3(player.getX(), player.getY(), player.getZ());
+                            Vec3 delta = pos.subtract(overlay.anchor);
                             overlay.anchor = pos;
                             for (int i = 0; i < 4; i++) {
                                 overlay.corners[i] = overlay.corners[i].add(delta);
                             }
                             storage.saveOverlay(overlay);
 
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.moved_to_player",
                                     overlay.displayName,
                                     String.format("%.2f, %.2f, %.2f", pos.x, pos.y, pos.z)));
@@ -280,11 +281,11 @@ public class OverlayCommands {
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildDisplace() {
-        return ClientCommandManager.literal("displace")
-                .then(ClientCommandManager.literal("*")
-                        .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
-                                .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
-                                        .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+        return ClientCommands.literal("displace")
+                .then(ClientCommands.literal("*")
+                        .then(ClientCommands.argument("x", DoubleArgumentType.doubleArg())
+                                .then(ClientCommands.argument("y", DoubleArgumentType.doubleArg())
+                                        .then(ClientCommands.argument("z", DoubleArgumentType.doubleArg())
                                                 .executes(ctx -> {
                                                     double dx = DoubleArgumentType.getDouble(ctx, "x");
                                                     double dy = DoubleArgumentType.getDouble(ctx, "y");
@@ -298,24 +299,24 @@ public class OverlayCommands {
                                                         storage.saveOverlay(overlay);
                                                         count++;
                                                     }
-                                                    ctx.getSource().sendFeedback(Text.translatable(
+                                                    ctx.getSource().sendFeedback(Component.translatable(
                                                             "command.boshysbteutils.overlay.displaced",
                                                             "all overlays",
                                                             String.format("%.2f, %.2f, %.2f", dx, dy, dz)));
                                                     return count > 0 ? 1 : 0;
                                                 })))))
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(loadedOverlaysOnly())
-                        .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
-                                .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
-                                        .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+                        .then(ClientCommands.argument("x", DoubleArgumentType.doubleArg())
+                                .then(ClientCommands.argument("y", DoubleArgumentType.doubleArg())
+                                        .then(ClientCommands.argument("z", DoubleArgumentType.doubleArg())
                                                 .executes(ctx -> {
                                                     String name = StringArgumentType.getString(ctx, "name");
                                                     String safeKey = OverlayData.toSafeFilename(name);
                                                     OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
 
                                                     if (overlay == null) {
-                                                        ctx.getSource().sendFeedback(Text.translatable(
+                                                        ctx.getSource().sendFeedback(Component.translatable(
                                                                 "command.boshysbteutils.overlay.not_loaded", safeKey));
                                                         return 0;
                                                     }
@@ -330,7 +331,7 @@ public class OverlayCommands {
                                                     }
                                                     storage.saveOverlay(overlay);
 
-                                                    ctx.getSource().sendFeedback(Text.translatable(
+                                                    ctx.getSource().sendFeedback(Component.translatable(
                                                             "command.boshysbteutils.overlay.displaced",
                                                             overlay.displayName,
                                                             String.format("%.2f, %.2f, %.2f", dx, dy, dz)));
@@ -339,9 +340,9 @@ public class OverlayCommands {
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildRotate() {
-        return ClientCommandManager.literal("rotate")
-                .then(ClientCommandManager.literal("*")
-                        .then(ClientCommandManager.argument("degrees", DoubleArgumentType.doubleArg())
+        return ClientCommands.literal("rotate")
+                .then(ClientCommands.literal("*")
+                        .then(ClientCommands.argument("degrees", DoubleArgumentType.doubleArg())
                                 .executes(ctx -> {
                                     double deg = DoubleArgumentType.getDouble(ctx, "degrees");
                                     int count = 0;
@@ -350,29 +351,29 @@ public class OverlayCommands {
                                     double sin = Math.sin(rad);
                                     for (OverlayData.ImageOverlay overlay : storage.getLoadedOverlays().values()) {
                                         for (int i = 0; i < 4; i++) {
-                                            Vec3d off = overlay.corners[i].subtract(overlay.anchor);
+                                            Vec3 off = overlay.corners[i].subtract(overlay.anchor);
                                             double nx = off.x * cos - off.z * sin;
                                             double nz = off.x * sin + off.z * cos;
-                                            overlay.corners[i] = overlay.anchor.add(new Vec3d(nx, off.y, nz));
+                                            overlay.corners[i] = overlay.anchor.add(new Vec3(nx, off.y, nz));
                                         }
                                         storage.saveOverlay(overlay);
                                         count++;
                                     }
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.rotated",
                                             "all overlays", deg));
                                     return count > 0 ? 1 : 0;
                                 })))
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(loadedOverlaysOnly())
-                        .then(ClientCommandManager.argument("degrees", DoubleArgumentType.doubleArg())
+                        .then(ClientCommands.argument("degrees", DoubleArgumentType.doubleArg())
                                 .executes(ctx -> {
                                     String name = StringArgumentType.getString(ctx, "name");
                                     String safeKey = OverlayData.toSafeFilename(name);
                                     OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
 
                                     if (overlay == null) {
-                                        ctx.getSource().sendFeedback(Text.translatable(
+                                        ctx.getSource().sendFeedback(Component.translatable(
                                                 "command.boshysbteutils.overlay.not_loaded", safeKey));
                                         return 0;
                                     }
@@ -382,14 +383,14 @@ public class OverlayCommands {
                                     double cos = Math.cos(rad);
                                     double sin = Math.sin(rad);
                                     for (int i = 0; i < 4; i++) {
-                                        Vec3d off = overlay.corners[i].subtract(overlay.anchor);
+                                        Vec3 off = overlay.corners[i].subtract(overlay.anchor);
                                         double nx = off.x * cos - off.z * sin;
                                         double nz = off.x * sin + off.z * cos;
-                                        overlay.corners[i] = overlay.anchor.add(new Vec3d(nx, off.y, nz));
+                                        overlay.corners[i] = overlay.anchor.add(new Vec3(nx, off.y, nz));
                                     }
                                     storage.saveOverlay(overlay);
 
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.rotated",
                                             overlay.displayName, deg));
                                     return 1;
@@ -397,47 +398,47 @@ public class OverlayCommands {
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildScale() {
-        return ClientCommandManager.literal("scale")
-                .then(ClientCommandManager.literal("*")
-                        .then(ClientCommandManager.argument("factor", DoubleArgumentType.doubleArg(0.01))
+        return ClientCommands.literal("scale")
+                .then(ClientCommands.literal("*")
+                        .then(ClientCommands.argument("factor", DoubleArgumentType.doubleArg(0.01))
                                 .executes(ctx -> {
                                     double factor = DoubleArgumentType.getDouble(ctx, "factor");
                                     int count = 0;
                                     for (OverlayData.ImageOverlay overlay : storage.getLoadedOverlays().values()) {
                                         for (int i = 0; i < 4; i++) {
-                                            Vec3d off = overlay.corners[i].subtract(overlay.anchor);
-                                            overlay.corners[i] = overlay.anchor.add(off.multiply(factor));
+                                            Vec3 off = overlay.corners[i].subtract(overlay.anchor);
+                                            overlay.corners[i] = overlay.anchor.add(off.scale(factor));
                                         }
                                         storage.saveOverlay(overlay);
                                         count++;
                                     }
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.scaled",
                                             "all overlays", factor));
                                     return count > 0 ? 1 : 0;
                                 })))
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(loadedOverlaysOnly())
-                        .then(ClientCommandManager.argument("factor", DoubleArgumentType.doubleArg(0.01))
+                        .then(ClientCommands.argument("factor", DoubleArgumentType.doubleArg(0.01))
                                 .executes(ctx -> {
                                     String name = StringArgumentType.getString(ctx, "name");
                                     String safeKey = OverlayData.toSafeFilename(name);
                                     OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
 
                                     if (overlay == null) {
-                                        ctx.getSource().sendFeedback(Text.translatable(
+                                        ctx.getSource().sendFeedback(Component.translatable(
                                                 "command.boshysbteutils.overlay.not_loaded", safeKey));
                                         return 0;
                                     }
 
                                     double factor = DoubleArgumentType.getDouble(ctx, "factor");
                                     for (int i = 0; i < 4; i++) {
-                                        Vec3d off = overlay.corners[i].subtract(overlay.anchor);
-                                        overlay.corners[i] = overlay.anchor.add(off.multiply(factor));
+                                        Vec3 off = overlay.corners[i].subtract(overlay.anchor);
+                                        overlay.corners[i] = overlay.anchor.add(off.scale(factor));
                                     }
                                     storage.saveOverlay(overlay);
 
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.scaled",
                                             overlay.displayName, factor));
                                     return 1;
@@ -445,8 +446,8 @@ public class OverlayCommands {
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildFlip() {
-        return ClientCommandManager.literal("flip")
-                .then(ClientCommandManager.literal("*")
+        return ClientCommands.literal("flip")
+                .then(ClientCommands.literal("*")
                         .executes(ctx -> {
                             int count = 0;
                             for (OverlayData.ImageOverlay overlay : storage.getLoadedOverlays().values()) {
@@ -454,11 +455,11 @@ public class OverlayCommands {
                                 storage.saveOverlay(overlay);
                                 count++;
                             }
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.flipped_all", count));
                             return count > 0 ? 1 : 0;
                         }))
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(loadedOverlaysOnly())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name");
@@ -466,7 +467,7 @@ public class OverlayCommands {
                             OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
 
                             if (overlay == null) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.not_loaded", safeKey));
                                 return 0;
                             }
@@ -475,9 +476,9 @@ public class OverlayCommands {
                             storage.saveOverlay(overlay);
 
                             String state = overlay.flipped
-                                    ? Text.translatable("command.boshysbteutils.overlay.flip_state.on").getString()
-                                    : Text.translatable("command.boshysbteutils.overlay.flip_state.off").getString();
-                            ctx.getSource().sendFeedback(Text.translatable(
+                                    ? Component.translatable("command.boshysbteutils.overlay.flip_state.on").getString()
+                                    : Component.translatable("command.boshysbteutils.overlay.flip_state.off").getString();
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.flipped",
                                     overlay.displayName, state));
                             return 1;
@@ -485,29 +486,29 @@ public class OverlayCommands {
     }
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildDelete() {
-        return ClientCommandManager.literal("delete")
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+        return ClientCommands.literal("delete")
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(savedOverlays())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name").trim();
 
                             if (name.equals("*")) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.delete_confirm", "all overlays"));
                                 return 0;
                             }
 
                             String safeKey = OverlayData.toSafeFilename(name);
                             if (!OverlayStorage.listSavedOverlayKeys().contains(safeKey)) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.not_found", safeKey));
                                 return 0;
                             }
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.delete_confirm", safeKey));
                             return 0;
                         })
-                        .then(ClientCommandManager.literal("confirm")
+                        .then(ClientCommands.literal("confirm")
                                 .executes(ctx -> {
                                     String name = StringArgumentType.getString(ctx, "name").trim();
 
@@ -518,7 +519,7 @@ public class OverlayCommands {
                                             storage.deleteOverlay(safeKey);
                                             count++;
                                         }
-                                        ctx.getSource().sendFeedback(Text.translatable(
+                                        ctx.getSource().sendFeedback(Component.translatable(
                                                 "command.boshysbteutils.overlay.deleted", "all overlays"));
                                         return 1;
                                     }
@@ -526,18 +527,18 @@ public class OverlayCommands {
                                     String safeKey = OverlayData.toSafeFilename(name);
 
                                     if (!OverlayStorage.listSavedOverlayKeys().contains(safeKey)) {
-                                        ctx.getSource().sendFeedback(Text.translatable(
+                                        ctx.getSource().sendFeedback(Component.translatable(
                                                 "command.boshysbteutils.overlay.not_found", safeKey));
                                         return 0;
                                     }
 
                                     boolean deleted = storage.deleteOverlay(safeKey);
                                     if (deleted) {
-                                        ctx.getSource().sendFeedback(Text.translatable(
+                                        ctx.getSource().sendFeedback(Component.translatable(
                                                 "command.boshysbteutils.overlay.deleted", safeKey));
                                         return 1;
                                     } else {
-                                        ctx.getSource().sendFeedback(Text.translatable(
+                                        ctx.getSource().sendFeedback(Component.translatable(
                                                 "command.boshysbteutils.overlay.delete_failed", safeKey));
                                         return 0;
                                     }
@@ -548,22 +549,22 @@ public class OverlayCommands {
     // Reanchor: move anchor to player without moving corners
     // ------------------------------------------------------------------
     private LiteralArgumentBuilder<FabricClientCommandSource> buildReanchor() {
-        return ClientCommandManager.literal("reanchor")
-                .then(ClientCommandManager.argument("name", StringArgumentType.greedyString())
+        return ClientCommands.literal("reanchor")
+                .then(ClientCommands.argument("name", StringArgumentType.greedyString())
                         .suggests(loadedOverlaysWithWildcard())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name").trim();
 
                             if (name.equals("*")) {
-                                ClientPlayerEntity player = ctx.getSource().getPlayer();
-                                Vec3d pos = new Vec3d(player.getX(), player.getY(), player.getZ());
+                                LocalPlayer player = ctx.getSource().getPlayer();
+                                Vec3 pos = new Vec3(player.getX(), player.getY(), player.getZ());
                                 int count = 0;
                                 for (OverlayData.ImageOverlay overlay : storage.getLoadedOverlays().values()) {
                                     overlay.anchor = pos;
                                     storage.saveOverlay(overlay);
                                     count++;
                                 }
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.reanchored_all", count));
                                 return count > 0 ? 1 : 0;
                             }
@@ -571,16 +572,16 @@ public class OverlayCommands {
                             String safeKey = OverlayData.toSafeFilename(name);
                             OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
                             if (overlay == null) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.not_loaded", safeKey));
                                 return 0;
                             }
 
-                            ClientPlayerEntity player = ctx.getSource().getPlayer();
-                            overlay.anchor = new Vec3d(player.getX(), player.getY(), player.getZ());
+                            LocalPlayer player = ctx.getSource().getPlayer();
+                            overlay.anchor = new Vec3(player.getX(), player.getY(), player.getZ());
                             storage.saveOverlay(overlay);
 
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.reanchored", overlay.displayName));
                             return 1;
                         }));
@@ -598,21 +599,21 @@ public class OverlayCommands {
             return CompletableFuture.completedFuture(builder.build());
         };
 
-        return ClientCommandManager.literal("corner")
-                .then(ClientCommandManager.argument("corner", StringArgumentType.string())
+        return ClientCommands.literal("corner")
+                .then(ClientCommands.argument("corner", StringArgumentType.string())
                         .suggests(cornerSuggestions)
-                        .then(ClientCommandManager.literal("toPlayer")
-                                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                        .then(ClientCommands.literal("toPlayer")
+                                .then(ClientCommands.argument("name", StringArgumentType.string())
                                         .suggests(loadedOverlaysOnly())
                                         .executes(ctx -> {
                                             int corner = resolveCorner(ctx);
                                             if (corner == -1) {
-                                                ctx.getSource().sendFeedback(Text.translatable(
+                                                ctx.getSource().sendFeedback(Component.translatable(
                                                         "command.boshysbteutils.overlay.invalid_corner"));
                                                 return 0;
                                             }
                                             if (corner == -2) {
-                                                ctx.getSource().sendFeedback(Text.translatable(
+                                                ctx.getSource().sendFeedback(Component.translatable(
                                                         "command.boshysbteutils.overlay.no_corner_selected"));
                                                 return 0;
                                             }
@@ -620,33 +621,33 @@ public class OverlayCommands {
                                             String safeKey = OverlayData.toSafeFilename(name);
                                             OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
                                             if (overlay == null) {
-                                                ctx.getSource().sendFeedback(Text.translatable(
+                                                ctx.getSource().sendFeedback(Component.translatable(
                                                         "command.boshysbteutils.overlay.not_loaded", safeKey));
                                                 return 0;
                                             }
-                                            ClientPlayerEntity player = ctx.getSource().getPlayer();
-                                            overlay.corners[corner] = new Vec3d(player.getX(), player.getY(), player.getZ());
+                                            LocalPlayer player = ctx.getSource().getPlayer();
+                                            overlay.corners[corner] = new Vec3(player.getX(), player.getY(), player.getZ());
                                             storage.saveOverlay(overlay);
-                                            ctx.getSource().sendFeedback(Text.translatable(
+                                            ctx.getSource().sendFeedback(Component.translatable(
                                                     "command.boshysbteutils.overlay.corner_moved",
                                                     OverlayData.cornerName(corner), overlay.displayName));
                                             return 1;
                                         })))
-                        .then(ClientCommandManager.literal("displace")
-                                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                        .then(ClientCommands.literal("displace")
+                                .then(ClientCommands.argument("name", StringArgumentType.string())
                                         .suggests(loadedOverlaysOnly())
-                                        .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
-                                                .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
-                                                        .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+                                        .then(ClientCommands.argument("x", DoubleArgumentType.doubleArg())
+                                                .then(ClientCommands.argument("y", DoubleArgumentType.doubleArg())
+                                                        .then(ClientCommands.argument("z", DoubleArgumentType.doubleArg())
                                                                 .executes(ctx -> {
                                                                     int corner = resolveCorner(ctx);
                                                                     if (corner == -1) {
-                                                                        ctx.getSource().sendFeedback(Text.translatable(
+                                                                        ctx.getSource().sendFeedback(Component.translatable(
                                                                                 "command.boshysbteutils.overlay.invalid_corner"));
                                                                         return 0;
                                                                     }
                                                                     if (corner == -2) {
-                                                                        ctx.getSource().sendFeedback(Text.translatable(
+                                                                        ctx.getSource().sendFeedback(Component.translatable(
                                                                                 "command.boshysbteutils.overlay.no_corner_selected"));
                                                                         return 0;
                                                                     }
@@ -654,7 +655,7 @@ public class OverlayCommands {
                                                                     String safeKey = OverlayData.toSafeFilename(name);
                                                                     OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
                                                                     if (overlay == null) {
-                                                                        ctx.getSource().sendFeedback(Text.translatable(
+                                                                        ctx.getSource().sendFeedback(Component.translatable(
                                                                                 "command.boshysbteutils.overlay.not_loaded", safeKey));
                                                                         return 0;
                                                                     }
@@ -663,7 +664,7 @@ public class OverlayCommands {
                                                                     double dz = DoubleArgumentType.getDouble(ctx, "z");
                                                                     overlay.corners[corner] = overlay.corners[corner].add(dx, dy, dz);
                                                                     storage.saveOverlay(overlay);
-                                                                    ctx.getSource().sendFeedback(Text.translatable(
+                                                                    ctx.getSource().sendFeedback(Component.translatable(
                                                                             "command.boshysbteutils.overlay.corner_displaced",
                                                                             OverlayData.cornerName(corner), overlay.displayName,
                                                                             String.format("%.2f", dx), String.format("%.2f", dy), String.format("%.2f", dz)));
@@ -686,15 +687,15 @@ public class OverlayCommands {
     // Reset corners to a square around anchor
     // ------------------------------------------------------------------
     private LiteralArgumentBuilder<FabricClientCommandSource> buildResetCorners() {
-        return ClientCommandManager.literal("resetCorners")
-                .then(ClientCommandManager.literal("*")
+        return ClientCommands.literal("resetCorners")
+                .then(ClientCommands.literal("*")
                         .executes(ctx -> executeResetAll(ctx, 10.0))
-                        .then(ClientCommandManager.argument("size", DoubleArgumentType.doubleArg(0.1))
+                        .then(ClientCommands.argument("size", DoubleArgumentType.doubleArg(0.1))
                                 .executes(ctx -> executeResetAll(ctx, DoubleArgumentType.getDouble(ctx, "size")))))
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(loadedOverlaysOnly())
                         .executes(ctx -> executeResetOne(ctx, 10.0))
-                        .then(ClientCommandManager.argument("size", DoubleArgumentType.doubleArg(0.1))
+                        .then(ClientCommands.argument("size", DoubleArgumentType.doubleArg(0.1))
                                 .executes(ctx -> executeResetOne(ctx, DoubleArgumentType.getDouble(ctx, "size")))));
     }
 
@@ -705,7 +706,7 @@ public class OverlayCommands {
             storage.saveOverlay(overlay);
             count++;
         }
-        ctx.getSource().sendFeedback(Text.translatable(
+        ctx.getSource().sendFeedback(Component.translatable(
                 "command.boshysbteutils.overlay.reset_all", count));
         return count > 0 ? 1 : 0;
     }
@@ -715,31 +716,31 @@ public class OverlayCommands {
         String safeKey = OverlayData.toSafeFilename(name);
         OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
         if (overlay == null) {
-            ctx.getSource().sendFeedback(Text.translatable(
+            ctx.getSource().sendFeedback(Component.translatable(
                     "command.boshysbteutils.overlay.not_loaded", safeKey));
             return 0;
         }
         resetCorners(overlay, size);
         storage.saveOverlay(overlay);
-        ctx.getSource().sendFeedback(Text.translatable(
+        ctx.getSource().sendFeedback(Component.translatable(
                 "command.boshysbteutils.overlay.reset", overlay.displayName, size));
         return 1;
     }
 
     private void resetCorners(OverlayData.ImageOverlay overlay, double size) {
-        Vec3d a = overlay.anchor;
-        overlay.corners[0] = new Vec3d(a.x - size, a.y, a.z - size);
-        overlay.corners[1] = new Vec3d(a.x + size, a.y, a.z - size);
-        overlay.corners[2] = new Vec3d(a.x + size, a.y, a.z + size);
-        overlay.corners[3] = new Vec3d(a.x - size, a.y, a.z + size);
+        Vec3 a = overlay.anchor;
+        overlay.corners[0] = new Vec3(a.x - size, a.y, a.z - size);
+        overlay.corners[1] = new Vec3(a.x + size, a.y, a.z - size);
+        overlay.corners[2] = new Vec3(a.x + size, a.y, a.z + size);
+        overlay.corners[3] = new Vec3(a.x - size, a.y, a.z + size);
     }
 
     // ------------------------------------------------------------------
     // Toggle edit markers visibility
     // ------------------------------------------------------------------
     private LiteralArgumentBuilder<FabricClientCommandSource> buildToggleMarkers() {
-        return ClientCommandManager.literal("toggleMarkers")
-                .then(ClientCommandManager.literal("*")
+        return ClientCommands.literal("toggleMarkers")
+                .then(ClientCommands.literal("*")
                         .executes(ctx -> {
                             boolean anyVisible = false;
                             for (OverlayData.ImageOverlay o : storage.getLoadedOverlays().values()) {
@@ -751,25 +752,25 @@ public class OverlayCommands {
                                 storage.saveOverlay(o);
                                 count++;
                             }
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.markers_toggled_all",
                                     anyVisible ? "hidden" : "shown"));
                             return count > 0 ? 1 : 0;
                         }))
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(loadedOverlaysOnly())
                         .executes(ctx -> {
                             String name = StringArgumentType.getString(ctx, "name");
                             String safeKey = OverlayData.toSafeFilename(name);
                             OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
                             if (overlay == null) {
-                                ctx.getSource().sendFeedback(Text.translatable(
+                                ctx.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.overlay.not_loaded", safeKey));
                                 return 0;
                             }
                             overlay.markersVisible = !overlay.markersVisible;
                             storage.saveOverlay(overlay);
-                            ctx.getSource().sendFeedback(Text.translatable(
+                            ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.markers_toggled_single",
                                     overlay.displayName,
                                     overlay.markersVisible ? "shown" : "hidden"));
@@ -781,9 +782,9 @@ public class OverlayCommands {
     // Opacity: per-overlay image opacity
     // ------------------------------------------------------------------
     private LiteralArgumentBuilder<FabricClientCommandSource> buildOpacity() {
-        return ClientCommandManager.literal("opacity")
-                .then(ClientCommandManager.literal("*")
-                        .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+        return ClientCommands.literal("opacity")
+                .then(ClientCommands.literal("*")
+                        .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
                                 .executes(ctx -> {
                                     float opacity = FloatArgumentType.getFloat(ctx, "value");
                                     int count = 0;
@@ -792,26 +793,26 @@ public class OverlayCommands {
                                         storage.saveOverlay(overlay);
                                         count++;
                                     }
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.opacity_all", count, opacity));
                                     return count > 0 ? 1 : 0;
                                 })))
-                .then(ClientCommandManager.argument("name", StringArgumentType.string())
+                .then(ClientCommands.argument("name", StringArgumentType.string())
                         .suggests(loadedOverlaysOnly())
-                        .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+                        .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
                                 .executes(ctx -> {
                                     String name = StringArgumentType.getString(ctx, "name");
                                     String safeKey = OverlayData.toSafeFilename(name);
                                     OverlayData.ImageOverlay overlay = storage.getOverlay(safeKey);
                                     if (overlay == null) {
-                                        ctx.getSource().sendFeedback(Text.translatable(
+                                        ctx.getSource().sendFeedback(Component.translatable(
                                                 "command.boshysbteutils.overlay.not_loaded", safeKey));
                                         return 0;
                                     }
                                     float opacity = FloatArgumentType.getFloat(ctx, "value");
                                     overlay.imageOpacity = opacity;
                                     storage.saveOverlay(overlay);
-                                    ctx.getSource().sendFeedback(Text.translatable(
+                                    ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.opacity_set",
                                             overlay.displayName, opacity));
                                     return 1;

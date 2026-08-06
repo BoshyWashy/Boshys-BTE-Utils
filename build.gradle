@@ -1,22 +1,21 @@
 plugins {
-    id "fabric-loom" version "${loom_version}"
+    id "net.fabricmc.fabric-loom" version "1.17.12"
     id "java"
 }
 
 group = "com.boshys.bteutils"
-version = "Fabric_1.21.10_2.0"
+version = "Fabric_26.2-2.1-18"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
     withSourcesJar()
 }
 
-def minecraftVersion = "1.21.10"
-def loaderVersion = "0.18.2"
-def fabricApiVersion = "0.138.3+1.21.10"
-def yarnVersion = "1.21.10+build.3"
+def minecraftVersion = "26.2"
+def loaderVersion = "0.19.3"
+def fabricApiVersion = "0.154.2+26.2"
 
 base {
     archivesName = "Boshys-BTE-Utils"
@@ -27,20 +26,18 @@ repositories {
     maven { url = "https://maven.fabricmc.net/" }
     maven { url = "https://maven.terraformersmc.com/releases/" }
     maven { url = "https://maven.shedaniel.me/" }
-    maven { url = "https://maven.buildtheearth.net/releases/"}
+    maven { url = "https://maven.buildtheearth.net/releases/" }
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraftVersion}"
-    mappings "net.fabricmc:yarn:${yarnVersion}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${loaderVersion}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
-    modImplementation "com.terraformersmc:modmenu:11.0.2"
+    implementation "net.fabricmc:fabric-loader:${loaderVersion}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+    implementation "com.terraformersmc:modmenu:20.0.0-beta.4"
 
-    modApi "me.shedaniel.cloth:cloth-config-fabric:15.0.140"
-    include "me.shedaniel.cloth:cloth-config-fabric:15.0.140"
+    api "me.shedaniel.cloth:cloth-config-fabric:26.2.155"
+    include "me.shedaniel.cloth:cloth-config-fabric:26.2.155"
 
-    implementation "com.google.code.gson:gson:2.10.1"
     implementation "net.buildtheearth:projection:1.0.3"
 }
 
@@ -52,5 +49,5 @@ loom {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
-    options.release = 21
+    options.release = 25
 }

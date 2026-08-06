@@ -1,78 +1,173 @@
 package com.boshys.bteutils.overlay;
 
 import com.boshys.bteutils.BoshysBTEUtils;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.*;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Camera;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.StagedVertexBuffer;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.blaze3d.textures.AddressMode;
+import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.systems.SamplerCache;
+import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.blaze3d.IndexType;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
+import org.joml.Vector3f;
+import org.joml.Vector4f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalDouble;
 
+/**
+ * OverlayRenderer for Minecraft 26.2 (Mojang unobfuscated mappings).
+ *
+ * FIXED VERSION v9:
+ * - Deferred fullbright lightmap creation to first render() call
+ *   (static DynamicTexture crashed because GPU isn't ready during class loading)
+ * - Binds a 1x1 WHITE texture as the lightmap to fix dark tint
+ * - Opacity works correctly via vertex color alpha only
+ * - Fixed near-plane clipping
+ */
 public class OverlayRenderer {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("BoshysBTEUtils/OverlayRenderer");
 
     private final OverlayStorage storage;
     private final OverlayTextureManager textureManager;
 
+    private static final RenderPipeline OVERLAY_TEX_PIPELINE;
+    private static final RenderPipeline OVERLAY_COLOR_PIPELINE;
+
+    // CRITICAL FIX: Don't create DynamicTexture in static block — GPU isn't ready yet!
+    // Instead, create the NativeImage now and register the DynamicTexture lazily.
+    private static final NativeImage FULLBRIGHT_LIGHTMAP_IMAGE;
+    private static final Identifier FULLBRIGHT_LIGHTMAP_ID;
+    private static GpuTextureView fullbrightLightmapView = null;
+    private static boolean lightmapRegistered = false;
+
+    static {
+        OVERLAY_TEX_PIPELINE = RenderPipelines.register(
+                RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
+                        .withLocation(Identifier.fromNamespaceAndPath("boshysbteutils", "pipeline/overlay_tex"))
+                        .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP)
+                        .withPrimitiveTopology(PrimitiveTopology.QUADS)
+                        .withDepthStencilState(Optional.empty())
+                        .build()
+        );
+
+        OVERLAY_COLOR_PIPELINE = RenderPipelines.register(
+                RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
+                        .withLocation(Identifier.fromNamespaceAndPath("boshysbteutils", "pipeline/overlay_color"))
+                        .withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+                        .withPrimitiveTopology(PrimitiveTopology.QUADS)
+                        .withDepthStencilState(Optional.empty())
+                        .build()
+        );
+
+        // Create the image now, but NOT the DynamicTexture (needs GPU)
+        FULLBRIGHT_LIGHTMAP_IMAGE = new NativeImage(NativeImage.Format.RGBA, 1, 1, false);
+        FULLBRIGHT_LIGHTMAP_IMAGE.setPixel(0, 0, 0xFFFFFFFF); // Full white, full alpha
+        FULLBRIGHT_LIGHTMAP_ID = Identifier.fromNamespaceAndPath("boshysbteutils", "fullbright_lightmap");
+    }
+
+    // ColorModulator alpha is ALWAYS 1.0 — opacity comes from vertex color only
+    private static final Vector4f COLOR_MODULATOR = new Vector4f(1f, 1f, 1f, 1f);
+    private static final Vector3f MODEL_OFFSET = new Vector3f();
+    private static final Matrix4f TEXTURE_MATRIX = new Matrix4f();
+
+    private final StagedVertexBuffer stagedBuffer;
+
+    private static class OverlayDrawJob {
+        final StagedVertexBuffer.Draw draw;
+        final Identifier texId;
+        final boolean isTextured;
+
+        OverlayDrawJob(StagedVertexBuffer.Draw draw, Identifier texId, boolean isTextured) {
+            this.draw = draw;
+            this.texId = texId;
+            this.isTextured = isTextured;
+        }
+    }
+
+    private final List<OverlayDrawJob> pendingJobs = new ArrayList<>();
+
     public OverlayRenderer(OverlayStorage storage, OverlayTextureManager textureManager) {
         this.storage = storage;
         this.textureManager = textureManager;
+        this.stagedBuffer = new StagedVertexBuffer(() -> "BoshysBTEUtils Overlay Buffer", RenderType.SMALL_BUFFER_SIZE * 8);
     }
 
-    /**
-     * Gets a VertexConsumerProvider that is safe to use for rendering.
-     * In 1.21.10, context.consumers() is always available during AFTER_ENTITIES.
-     * In 1.21.11, context.consumers() may be null in certain render passes.
-     * This method falls back to the entity vertex consumers from Minecraft's
-     * buffer builder storage, which is always available.
-     */
-    private VertexConsumerProvider getSafeConsumers(WorldRenderContext context) {
-        VertexConsumerProvider consumers = context.consumers();
-        if (consumers != null) {
-            return consumers;
-        }
-        // Fallback for 1.21.11+ where context.consumers() can be null
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.getBufferBuilders() != null) {
-            return client.getBufferBuilders().getEntityVertexConsumers();
-        }
-        return null;
+    public void endFrame() {
+        stagedBuffer.endFrame();
+        pendingJobs.clear();
     }
 
-    public void render(WorldRenderContext context) {
+    public void close() {
+        stagedBuffer.close();
+    }
+
+    public void render(PoseStack poseStack) {
         Map<String, OverlayData.ImageOverlay> overlays = storage.getLoadedOverlays();
         if (overlays.isEmpty()) return;
 
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null || client.player == null) return;
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null || client.player == null) return;
 
-        VertexConsumerProvider consumers = getSafeConsumers(context);
-        if (consumers == null) return;
+        // CRITICAL FIX: Register the fullbright lightmap texture lazily on first render.
+        // The GPU device is guaranteed to be initialized by now.
+        if (!lightmapRegistered) {
+            DynamicTexture whiteTexture = new DynamicTexture(() -> "boshysbteutils/fullbright_lightmap", FULLBRIGHT_LIGHTMAP_IMAGE);
+            client.getTextureManager().register(FULLBRIGHT_LIGHTMAP_ID, whiteTexture);
+            lightmapRegistered = true;
+        }
 
-        Camera camera = client.gameRenderer.getCamera();
-        Vec3d camPos = camera.getPos();
-        MatrixStack matrices = context.matrices();
+        // Cache the fullbright lightmap view on first use
+        if (fullbrightLightmapView == null) {
+            fullbrightLightmapView = getTextureView(FULLBRIGHT_LIGHTMAP_ID);
+        }
 
-        // Get the configured render distance in blocks (chunks * 16)
-        // -1 = use Minecraft's simulation distance (default)
-        //  0 = unlimited (always render)
-        //  1-64 = custom chunk distance
+        Camera camera = client.gameRenderer.mainCamera();
+        Vec3 camPos = camera.position();
+
         int renderDistanceChunks = BoshysBTEUtils.getConfig().overlayRenderDistance;
         double cullDist;
         if (renderDistanceChunks < 0) {
-            // Use Minecraft's simulation distance
-            cullDist = MinecraftClient.getInstance().options.getSimulationDistance().getValue() * 16.0;
+            cullDist = client.options.simulationDistance().get() * 16.0;
         } else if (renderDistanceChunks == 0) {
-            // Unlimited render distance
             cullDist = Double.MAX_VALUE;
         } else {
             cullDist = renderDistanceChunks * 16.0;
         }
 
+        // Phase 1: Append ALL draws with camera-relative coordinates
         for (OverlayData.ImageOverlay overlay : overlays.values()) {
             if (!overlay.visible) continue;
             if (storage.getTempHiddenOverlays().contains(OverlayData.toSafeFilename(overlay.displayName))) continue;
@@ -80,45 +175,38 @@ public class OverlayRenderer {
             Identifier texId = textureManager.getOrLoadTexture(overlay.imageFilename);
             if (texId == null) continue;
 
-            // Render the overlay using chunk subdivision.
-            // Each sub-quad is culled individually based on its center point.
-            // No early whole-overlay culling — sub-quads near the player will render
-            // even if the overlay's anchor is far away.
-            renderOverlayChunked(consumers, matrices, camPos, overlay, texId, cullDist);
+            appendOverlayChunked(poseStack, camPos, overlay, texId, cullDist);
 
             if (overlay.markersVisible) {
-                renderMarkers(consumers, matrices, camPos, overlay);
+                appendMarkers(poseStack, camPos, overlay);
             }
+        }
+
+        if (pendingJobs.isEmpty()) return;
+
+        // Phase 2: Upload ONCE
+        stagedBuffer.upload();
+
+        // Phase 3: Execute all draws
+        GpuBufferSlice dynamicTransforms = RenderSystem.getDynamicUniforms()
+                .writeTransform(RenderSystem.getModelViewMatrixCopy(), COLOR_MODULATOR, MODEL_OFFSET, TEXTURE_MATRIX);
+
+        for (OverlayDrawJob job : pendingJobs) {
+            executeDraw(job, client, dynamicTransforms);
         }
     }
 
+    private void appendOverlayChunked(PoseStack poseStack,
+                                      Vec3 camPos, OverlayData.ImageOverlay overlay, Identifier texId, double cullDist) {
 
-
-    /**
-     * Renders the overlay subdivided into chunk-sized pieces to prevent fog/unloading issues.
-     * Each sub-quad is rendered independently so the renderer culls individual pieces
-     * rather than the whole overlay.
-     *
-     * Culling is based on the CENTER of each sub-quad (chunk cross-section center),
-     * not the corners. This ensures a sub-quad is rendered if its center is in range,
-     * which provides smooth fading at the edges of render distance.
-     */
-    private void renderOverlayChunked(VertexConsumerProvider consumers, MatrixStack matrices,
-                                      Vec3d camPos, OverlayData.ImageOverlay overlay, Identifier texId, double cullDist) {
-
-        // Determine subdivision count based on overlay size
-        // We subdivide so that no single quad is larger than ~32 blocks
-        // This prevents the quad from being affected by chunk culling/fog
         double maxEdgeLength = computeMaxEdgeLength(overlay);
         int subdivisions = Math.max(1, (int) Math.ceil(maxEdgeLength / 32.0));
 
         if (subdivisions <= 1) {
-            // Small overlay - render as single quad
-            renderOverlayQuad(consumers, matrices, camPos, overlay, texId, 0, 0, 1, 1, 0, 0, 1, 1);
+            appendOverlayQuad(poseStack, camPos, overlay, texId, 0, 0, 1, 1, overlay.corners);
             return;
         }
 
-        // Large overlay - subdivide into smaller quads
         for (int i = 0; i < subdivisions; i++) {
             for (int j = 0; j < subdivisions; j++) {
                 double u0 = (double) i / subdivisions;
@@ -126,225 +214,211 @@ public class OverlayRenderer {
                 double v0 = (double) j / subdivisions;
                 double v1 = (double) (j + 1) / subdivisions;
 
-                // Compute the 4 corners of this sub-quad by bilinear interpolation
-                Vec3d[] subCorners = new Vec3d[4];
-                subCorners[0] = bilinearInterpolate(overlay.corners, u0, v0); // NW
-                subCorners[1] = bilinearInterpolate(overlay.corners, u1, v0); // NE
-                subCorners[2] = bilinearInterpolate(overlay.corners, u1, v1); // SE
-                subCorners[3] = bilinearInterpolate(overlay.corners, u0, v1); // SW
+                Vec3[] subCorners = new Vec3[4];
+                subCorners[0] = bilinearInterpolate(overlay.corners, u0, v0);
+                subCorners[1] = bilinearInterpolate(overlay.corners, u1, v0);
+                subCorners[2] = bilinearInterpolate(overlay.corners, u1, v1);
+                subCorners[3] = bilinearInterpolate(overlay.corners, u0, v1);
 
-                // Cull based on the CENTER of this sub-quad (cross-section center)
-                // This is more accurate than corner-checking for large subdivided overlays
-                Vec3d subCenter = subCorners[0].lerp(subCorners[2], 0.5); // diagonal center
+                Vec3 subCenter = subCorners[0].lerp(subCorners[2], 0.5);
                 double dx = subCenter.x - camPos.x;
                 double dy = subCenter.y - camPos.y;
                 double dz = subCenter.z - camPos.z;
                 if (dx * dx + dy * dy + dz * dz > cullDist * cullDist) {
-                    continue; // Skip this sub-quad - its center is out of range
+                    continue;
                 }
 
-                // Render this sub-quad with the appropriate UV mapping
-                renderSubQuad(consumers, matrices, camPos, subCorners, texId,
-                        (float) u0, (float) v0, (float) u1, (float) v1, overlay);
+                appendOverlayQuad(poseStack, camPos, overlay, texId, (float) u0, (float) v0, (float) u1, (float) v1, subCorners);
             }
         }
     }
 
-    /**
-     * Computes the maximum edge length of the overlay to determine subdivision count.
-     */
     private double computeMaxEdgeLength(OverlayData.ImageOverlay overlay) {
         double maxLen = 0;
-        // Check the 4 edges
-        maxLen = Math.max(maxLen, overlay.corners[0].distanceTo(overlay.corners[1])); // NW-NE
-        maxLen = Math.max(maxLen, overlay.corners[1].distanceTo(overlay.corners[2])); // NE-SE
-        maxLen = Math.max(maxLen, overlay.corners[2].distanceTo(overlay.corners[3])); // SE-SW
-        maxLen = Math.max(maxLen, overlay.corners[3].distanceTo(overlay.corners[0])); // SW-NW
-        // Also check diagonals
+        maxLen = Math.max(maxLen, overlay.corners[0].distanceTo(overlay.corners[1]));
+        maxLen = Math.max(maxLen, overlay.corners[1].distanceTo(overlay.corners[2]));
+        maxLen = Math.max(maxLen, overlay.corners[2].distanceTo(overlay.corners[3]));
+        maxLen = Math.max(maxLen, overlay.corners[3].distanceTo(overlay.corners[0]));
         maxLen = Math.max(maxLen, overlay.corners[0].distanceTo(overlay.corners[2]));
         maxLen = Math.max(maxLen, overlay.corners[1].distanceTo(overlay.corners[3]));
         return maxLen;
     }
 
-    /**
-     * Bilinear interpolation on a quad. Given u,v in [0,1], computes the world position.
-     * u goes from west (0) to east (1), v goes from north (0) to south (1).
-     */
-    private Vec3d bilinearInterpolate(Vec3d[] corners, double u, double v) {
-        // corners: 0=NW, 1=NE, 2=SE, 3=SW
-        Vec3d top = corners[0].lerp(corners[1], u);      // Lerp along top edge
-        Vec3d bottom = corners[3].lerp(corners[2], u);    // Lerp along bottom edge
-        return top.lerp(bottom, v);                        // Lerp between top and bottom
+    private Vec3 bilinearInterpolate(Vec3[] corners, double u, double v) {
+        Vec3 top = corners[0].lerp(corners[1], u);
+        Vec3 bottom = corners[3].lerp(corners[2], u);
+        return top.lerp(bottom, v);
     }
 
-    /**
-     * Renders a single sub-quad of the overlay.
-     */
-    private void renderSubQuad(VertexConsumerProvider consumers, MatrixStack matrices, Vec3d camPos,
-                               Vec3d[] subCorners, Identifier texId,
-                               float u0, float v0, float u1, float v1,
-                               OverlayData.ImageOverlay overlay) {
+    private void appendOverlayQuad(PoseStack poseStack, Vec3 camPos,
+                                   OverlayData.ImageOverlay overlay, Identifier texId,
+                                   float u0, float v0, float u1, float v1, Vec3[] corners) {
+
+        RenderPipeline pipeline = OVERLAY_TEX_PIPELINE;
+        VertexFormat formatBinding = pipeline.getVertexFormatBinding(0);
+        if (formatBinding == null) return;
+
+        PrimitiveTopology primitive = pipeline.getPrimitiveTopology();
+        StagedVertexBuffer.Draw draw = stagedBuffer.appendDraw(formatBinding, primitive,
+                primitive == PrimitiveTopology.QUADS ? RenderSystem.getProjectionType().vertexSorting() : null);
+
+        poseStack.pushPose();
+        PoseStack.Pose pose = poseStack.last();
+        Matrix4fc posMatrix = pose.pose();
+
+        VertexConsumer builder = stagedBuffer.getVertexBuilder(draw);
+
+        int light = 0xF000F0;
+        int overlayUV = OverlayTexture.NO_OVERLAY;
+        float opacity = overlay.imageOpacity;
 
         float[] u = { u0, u1, u1, u0 };
         float[] v = overlay.flipped ? new float[]{ v0, v0, v1, v1 } : new float[]{ v1, v1, v0, v0 };
 
-        RenderLayer layer = RenderLayer.getText(texId);
-        VertexConsumer buf = consumers.getBuffer(layer);
+        float yOffsetTop = 0.1f;
+        float yOffsetBottom = -0.1f;
 
-        matrices.push();
-        MatrixStack.Entry entry = matrices.peek();
-        Matrix4f posMatrix = entry.getPositionMatrix();
-
-        int light = LightmapTextureManager.MAX_LIGHT_COORDINATE;
-        int overlayUV = OverlayTexture.DEFAULT_UV;
-        float opacity = overlay.imageOpacity;
-
-        // Top face
+        // Top face (y + offset) - CAMERA-RELATIVE coordinates
         for (int i = 0; i < 4; i++) {
-            double cx = subCorners[i].x - camPos.x;
-            double cy = subCorners[i].y - camPos.y;
-            double cz = subCorners[i].z - camPos.z;
-            buf.vertex(posMatrix, (float) cx, (float) cy + 0.005f, (float) cz)
-                    .color(1f, 1f, 1f, opacity)
-                    .texture(u[i], v[i])
-                    .overlay(overlayUV)
-                    .light(light)
-                    .normal(entry, 0f, 1f, 0f);
+            float cx = (float) (corners[i].x - camPos.x);
+            float cy = (float) (corners[i].y - camPos.y);
+            float cz = (float) (corners[i].z - camPos.z);
+            builder.addVertex(posMatrix, cx, cy + yOffsetTop, cz)
+                    .setColor(1f, 1f, 1f, opacity)
+                    .setUv(u[i], v[i])
+                    .setOverlay(overlayUV)
+                    .setLight(light)
+                    .setNormal(pose, 0f, 1f, 0f);
         }
 
-        // Bottom face
-        for (int i = 0; i < 4; i++) {
-            int idx = 3 - i;
-            double cx = subCorners[idx].x - camPos.x;
-            double cy = subCorners[idx].y - camPos.y;
-            double cz = subCorners[idx].z - camPos.z;
-            buf.vertex(posMatrix, (float) cx, (float) cy - 0.005f, (float) cz)
-                    .color(1f, 1f, 1f, opacity)
-                    .texture(u[i], v[i])
-                    .overlay(overlayUV)
-                    .light(light)
-                    .normal(entry, 0f, -1f, 0f);
+        // Bottom face (y - offset) - CAMERA-RELATIVE coordinates
+        for (int i = 3; i >= 0; i--) {
+            float cx = (float) (corners[i].x - camPos.x);
+            float cy = (float) (corners[i].y - camPos.y);
+            float cz = (float) (corners[i].z - camPos.z);
+            builder.addVertex(posMatrix, cx, cy + yOffsetBottom, cz)
+                    .setColor(1f, 1f, 1f, opacity)
+                    .setUv(u[3 - i], v[3 - i])
+                    .setOverlay(overlayUV)
+                    .setLight(light)
+                    .setNormal(pose, 0f, -1f, 0f);
         }
 
-        matrices.pop();
+        poseStack.popPose();
+        pendingJobs.add(new OverlayDrawJob(draw, texId, true));
     }
 
-    /**
-     * Legacy single-quad render for small overlays.
-     */
-    private void renderOverlayQuad(VertexConsumerProvider consumers, MatrixStack matrices,
-                                   Vec3d camPos, OverlayData.ImageOverlay overlay, Identifier texId,
-                                   float u0, float v0, float u1, float v1, float uvU0, float uvV0, float uvU1, float uvV1) {
-
-        float[] u = { u0, u1, u1, u0 };
-        float[] v = overlay.flipped ? new float[]{ uvV0, uvV0, uvV1, uvV1 } : new float[]{ uvV1, uvV1, uvV0, uvV0 };
-
-        RenderLayer layer = RenderLayer.getText(texId);
-        VertexConsumer buf = consumers.getBuffer(layer);
-
-        matrices.push();
-        MatrixStack.Entry entry = matrices.peek();
-        Matrix4f posMatrix = entry.getPositionMatrix();
-
-        int light = LightmapTextureManager.MAX_LIGHT_COORDINATE;
-        int overlayUV = OverlayTexture.DEFAULT_UV;
-        float opacity = overlay.imageOpacity;
-
-        // Top face
-        for (int i = 0; i < 4; i++) {
-            double cx = overlay.corners[i].x - camPos.x;
-            double cy = overlay.corners[i].y - camPos.y;
-            double cz = overlay.corners[i].z - camPos.z;
-            buf.vertex(posMatrix, (float) cx, (float) cy + 0.005f, (float) cz)
-                    .color(1f, 1f, 1f, opacity)
-                    .texture(u[i], v[i])
-                    .overlay(overlayUV)
-                    .light(light)
-                    .normal(entry, 0f, 1f, 0f);
-        }
-
-        // Bottom face
-        for (int i = 0; i < 4; i++) {
-            int idx = 3 - i;
-            double cx = overlay.corners[idx].x - camPos.x;
-            double cy = overlay.corners[idx].y - camPos.y;
-            double cz = overlay.corners[idx].z - camPos.z;
-            buf.vertex(posMatrix, (float) cx, (float) cy - 0.005f, (float) cz)
-                    .color(1f, 1f, 1f, opacity)
-                    .texture(u[i], v[i])
-                    .overlay(overlayUV)
-                    .light(light)
-                    .normal(entry, 0f, -1f, 0f);
-        }
-
-        matrices.pop();
-    }
-
-    private void renderMarkers(VertexConsumerProvider consumers, MatrixStack matrices, Vec3d camPos, OverlayData.ImageOverlay overlay) {
+    private void appendMarkers(PoseStack poseStack, Vec3 camPos, OverlayData.ImageOverlay overlay) {
         boolean isSelectedOverlay = BoshysBTEUtils.selectedOverlayCorner == overlay;
 
         for (int i = 0; i < 4; i++) {
             boolean selected = isSelectedOverlay && BoshysBTEUtils.selectedCornerIndex == i;
-            renderMarker(consumers, matrices, camPos, overlay.corners[i], selected, false);
+            appendMarker(poseStack, camPos, overlay.corners[i], selected, false);
         }
 
         boolean anchorSelected = isSelectedOverlay && BoshysBTEUtils.selectedCornerIndex == 4;
-        renderMarker(consumers, matrices, camPos, overlay.anchor, anchorSelected, true);
+        appendMarker(poseStack, camPos, overlay.anchor, anchorSelected, true);
     }
 
-    private void renderMarker(VertexConsumerProvider consumers, MatrixStack matrices, Vec3d camPos,
-                              Vec3d worldPos, boolean selected, boolean isAnchor) {
-        double x = worldPos.x - camPos.x;
-        double y = worldPos.y - camPos.y;
-        double z = worldPos.z - camPos.z;
-
-        float scale = isAnchor ? 0.14f : 0.10f;
+    private void appendMarker(PoseStack poseStack, Vec3 camPos,
+                              Vec3 worldPos, boolean selected, boolean isAnchor) {
+        float baseScale = isAnchor ? 0.14f : 0.10f;
+        float scale = Math.max(baseScale, 0.05f);
         float alpha = selected ? 1.0f : 0.6f;
 
-        matrices.push();
-        matrices.translate(x, y, z);
+        poseStack.pushPose();
+        poseStack.translate(worldPos.x - camPos.x, worldPos.y - camPos.y, worldPos.z - camPos.z);
+        PoseStack.Pose pose = poseStack.last();
 
-        VertexConsumer buffer = consumers.getBuffer(RenderLayer.getDebugQuads());
-        MatrixStack.Entry entry = matrices.peek();
-
-        buildCube(buffer, entry, scale, 1f, 1f, 1f, alpha);
-
-        if (selected) {
-            renderRing(buffer, entry, scale * 1.8f, 1f, 1f, 0.2f, 0.8f);
-            renderArrows(consumers, matrices, entry);
+        RenderPipeline pipeline = OVERLAY_COLOR_PIPELINE;
+        VertexFormat formatBinding = pipeline.getVertexFormatBinding(0);
+        if (formatBinding == null) {
+            poseStack.popPose();
+            return;
         }
 
-        matrices.pop();
+        PrimitiveTopology primitive = pipeline.getPrimitiveTopology();
+        StagedVertexBuffer.Draw draw = stagedBuffer.appendDraw(formatBinding, primitive,
+                primitive == PrimitiveTopology.QUADS ? RenderSystem.getProjectionType().vertexSorting() : null);
+
+        VertexConsumer builder = stagedBuffer.getVertexBuilder(draw);
+        buildCube(builder, pose, scale, 1f, 1f, 1f, alpha);
+
+        if (selected) {
+            renderRing(builder, pose, scale * 1.8f, 1f, 1f, 0.2f, 0.8f);
+        }
+
+        poseStack.popPose();
+        pendingJobs.add(new OverlayDrawJob(draw, null, false));
     }
 
-    private void renderArrows(VertexConsumerProvider consumers, MatrixStack matrices, MatrixStack.Entry entry) {
-        double len = 1.2;
-        double startGap = 0.3;
+    private void executeDraw(OverlayDrawJob job, Minecraft client, GpuBufferSlice dynamicTransforms) {
+        StagedVertexBuffer.ExecuteInfo info = stagedBuffer.getExecuteInfo(job.draw);
+        if (info == null) return;
 
-        // +X (red)
-        renderArrow(consumers, matrices, entry, new Vec3d(startGap, 0, 0), new Vec3d(len, 0, 0), 1f, 0.2f, 0.2f);
-        // -X (red)
-        renderArrow(consumers, matrices, entry, new Vec3d(-startGap, 0, 0), new Vec3d(-len, 0, 0), 1f, 0.2f, 0.2f);
-        // +Z (blue)
-        renderArrow(consumers, matrices, entry, new Vec3d(0, 0, startGap), new Vec3d(0, 0, len), 0.2f, 0.2f, 1f);
-        // -Z (blue)
-        renderArrow(consumers, matrices, entry, new Vec3d(0, 0, -startGap), new Vec3d(0, 0, -len), 0.2f, 0.2f, 1f);
+        RenderTarget mainTarget = client.gameRenderer.mainRenderTarget();
+        GpuTextureView colorTexture = mainTarget.getColorTextureView();
+        if (colorTexture == null) return;
+
+        RenderPipeline pipeline = job.isTextured ? OVERLAY_TEX_PIPELINE : OVERLAY_COLOR_PIPELINE;
+
+        try (RenderPass renderPass = RenderSystem.getDevice()
+                .createCommandEncoder()
+                .createRenderPass(
+                        () -> "BoshysBTEUtils overlay render",
+                        colorTexture, Optional.empty(),
+                        mainTarget.useDepth ? mainTarget.getDepthTextureView() : null,
+                        OptionalDouble.empty())) {
+
+            renderPass.setPipeline(pipeline);
+            RenderSystem.bindDefaultUniforms(renderPass);
+            renderPass.setUniform("DynamicTransforms", dynamicTransforms);
+
+            if (job.isTextured && job.texId != null) {
+                // Bind overlay texture
+                GpuTextureView textureView = getTextureView(job.texId);
+                if (textureView != null) {
+                    SamplerCache samplerCache = RenderSystem.getSamplerCache();
+                    GpuSampler sampler = samplerCache.getSampler(
+                            AddressMode.CLAMP_TO_EDGE,
+                            AddressMode.CLAMP_TO_EDGE,
+                            FilterMode.LINEAR,
+                            FilterMode.LINEAR,
+                            true);
+                    renderPass.bindTexture("Sampler0", textureView, sampler);
+                }
+
+                // Bind fullbright white texture as lightmap to prevent dark tint
+                if (fullbrightLightmapView != null) {
+                    SamplerCache samplerCache = RenderSystem.getSamplerCache();
+                    GpuSampler lightmapSampler = samplerCache.getSampler(
+                            AddressMode.CLAMP_TO_EDGE,
+                            AddressMode.CLAMP_TO_EDGE,
+                            FilterMode.NEAREST,
+                            FilterMode.NEAREST,
+                            true);
+                    try {
+                        renderPass.bindTexture("Sampler1", fullbrightLightmapView, lightmapSampler);
+                    } catch (Exception e1) {
+                        try {
+                            renderPass.bindTexture("Sampler2", fullbrightLightmapView, lightmapSampler);
+                        } catch (Exception e2) {
+                            LOGGER.debug("Could not bind fullbright lightmap: {} / {}", e1.getMessage(), e2.getMessage());
+                        }
+                    }
+                }
+            }
+
+            renderPass.setVertexBuffer(0, info.vertexBuffer().slice());
+            renderPass.setIndexBuffer(info.indexBuffer(), info.indexType());
+            renderPass.drawIndexed(info.indexCount(), 1, info.firstIndex(), info.baseVertex(), 0);
+        }
     }
 
-    private void renderArrow(VertexConsumerProvider consumers, MatrixStack matrices, MatrixStack.Entry entry,
-                             Vec3d start, Vec3d dir, float r, float g, float b) {
-        // Arrowhead cube only — lines removed
-        matrices.push();
-        matrices.translate(start.x + dir.x, start.y + dir.y, start.z + dir.z);
-        MatrixStack.Entry headEntry = matrices.peek();
-        VertexConsumer quadBuf = consumers.getBuffer(RenderLayer.getDebugQuads());
-        buildCube(quadBuf, headEntry, 0.06f, r, g, b, 1f);
-        matrices.pop();
-    }
-
-    private void renderRing(VertexConsumer buffer, MatrixStack.Entry entry, float radius, float r, float g, float b, float a) {
+    private void renderRing(VertexConsumer buffer, PoseStack.Pose pose, float radius, float r, float g, float b, float a) {
         int segments = 16;
         float y = 0;
+        Matrix4fc matrix = pose.pose();
         for (int i = 0; i < segments; i++) {
             double a1 = (Math.PI * 2 * i) / segments;
             double a2 = (Math.PI * 2 * (i + 1)) / segments;
@@ -353,53 +427,75 @@ public class OverlayRenderer {
             float x2 = (float) (Math.cos(a2) * radius);
             float z2 = (float) (Math.sin(a2) * radius);
 
-            buffer.vertex(entry.getPositionMatrix(), x1, y, z1)
-                    .color(r, g, b, a)
-                    .light(15728880)
-                    .overlay(0)
-                    .normal(entry, 0, 1, 0);
-            buffer.vertex(entry.getPositionMatrix(), x2, y, z2)
-                    .color(r, g, b, a)
-                    .light(15728880)
-                    .overlay(0)
-                    .normal(entry, 0, 1, 0);
+            buffer.addVertex(matrix, x1, y, z1)
+                    .setColor(r, g, b, a)
+                    .setLight(15728880)
+                    .setOverlay(0)
+                    .setNormal(pose, 0, 1, 0);
+            buffer.addVertex(matrix, x2, y, z2)
+                    .setColor(r, g, b, a)
+                    .setLight(15728880)
+                    .setOverlay(0)
+                    .setNormal(pose, 0, 1, 0);
         }
     }
 
-    private void buildCube(VertexConsumer buffer, MatrixStack.Entry entry, float scale, float r, float g, float b, float a) {
-        // Front
-        vertex(buffer, entry, -scale, -scale, scale, r, g, b, a);
-        vertex(buffer, entry, scale, -scale, scale, r, g, b, a);
-        vertex(buffer, entry, scale, scale, scale, r, g, b, a);
-        vertex(buffer, entry, -scale, scale, scale, r, g, b, a);
-        // Back
-        vertex(buffer, entry, scale, -scale, -scale, r, g, b, a);
-        vertex(buffer, entry, -scale, -scale, -scale, r, g, b, a);
-        vertex(buffer, entry, -scale, scale, -scale, r, g, b, a);
-        vertex(buffer, entry, scale, scale, -scale, r, g, b, a);
-        // Top
-        vertex(buffer, entry, -scale, scale, scale, r, g, b, a);
-        vertex(buffer, entry, scale, scale, scale, r, g, b, a);
-        vertex(buffer, entry, scale, scale, -scale, r, g, b, a);
-        vertex(buffer, entry, -scale, scale, -scale, r, g, b, a);
-        // Bottom
-        vertex(buffer, entry, -scale, -scale, -scale, r, g, b, a);
-        vertex(buffer, entry, scale, -scale, -scale, r, g, b, a);
-        vertex(buffer, entry, scale, -scale, scale, r, g, b, a);
-        vertex(buffer, entry, -scale, -scale, scale, r, g, b, a);
-        // Right
-        vertex(buffer, entry, scale, -scale, scale, r, g, b, a);
-        vertex(buffer, entry, scale, -scale, -scale, r, g, b, a);
-        vertex(buffer, entry, scale, scale, -scale, r, g, b, a);
-        vertex(buffer, entry, scale, scale, scale, r, g, b, a);
-        // Left
-        vertex(buffer, entry, -scale, -scale, -scale, r, g, b, a);
-        vertex(buffer, entry, -scale, -scale, scale, r, g, b, a);
-        vertex(buffer, entry, -scale, scale, scale, r, g, b, a);
-        vertex(buffer, entry, -scale, scale, -scale, r, g, b, a);
+    private void buildCube(VertexConsumer buffer, PoseStack.Pose pose, float scale, float r, float g, float b, float a) {
+        Matrix4fc matrix = pose.pose();
+
+        emitFace(buffer, pose, matrix, r, g, b, a,
+                new float[]{-scale, -scale, scale}, new float[]{scale, -scale, scale},
+                new float[]{scale, scale, scale}, new float[]{-scale, scale, scale});
+        emitFace(buffer, pose, matrix, r, g, b, a,
+                new float[]{scale, -scale, -scale}, new float[]{-scale, -scale, -scale},
+                new float[]{-scale, scale, -scale}, new float[]{scale, scale, -scale});
+        emitFace(buffer, pose, matrix, r, g, b, a,
+                new float[]{-scale, scale, scale}, new float[]{scale, scale, scale},
+                new float[]{scale, scale, -scale}, new float[]{-scale, scale, -scale});
+        emitFace(buffer, pose, matrix, r, g, b, a,
+                new float[]{-scale, -scale, -scale}, new float[]{scale, -scale, -scale},
+                new float[]{scale, -scale, scale}, new float[]{-scale, -scale, scale});
+        emitFace(buffer, pose, matrix, r, g, b, a,
+                new float[]{scale, -scale, scale}, new float[]{scale, -scale, -scale},
+                new float[]{scale, scale, -scale}, new float[]{scale, scale, scale});
+        emitFace(buffer, pose, matrix, r, g, b, a,
+                new float[]{-scale, -scale, -scale}, new float[]{-scale, -scale, scale},
+                new float[]{-scale, scale, scale}, new float[]{-scale, scale, -scale});
     }
 
-    private void vertex(VertexConsumer buffer, MatrixStack.Entry entry, float x, float y, float z, float r, float g, float b, float a) {
-        buffer.vertex(entry.getPositionMatrix(), x, y, z).color(r, g, b, a).light(15728880).overlay(0).normal(entry, 0, 1, 0);
+    private void emitFace(VertexConsumer buffer, PoseStack.Pose pose, Matrix4fc matrix,
+                          float r, float g, float b, float a,
+                          float[] p0, float[] p1, float[] p2, float[] p3) {
+        float[][] pts = {p0, p1, p2, p3};
+        for (float[] p : pts) {
+            buffer.addVertex(matrix, p[0], p[1], p[2])
+                    .setColor(r, g, b, a)
+                    .setLight(15728880)
+                    .setOverlay(0)
+                    .setNormal(pose, 0, 1, 0);
+        }
+    }
+
+    private GpuTextureView getTextureView(Identifier textureId) {
+        TextureManager textureManager = Minecraft.getInstance().getTextureManager();
+        try {
+            AbstractTexture texture = textureManager.getTexture(textureId);
+            if (texture == null) return null;
+
+            try {
+                java.lang.reflect.Method m = AbstractTexture.class.getMethod("getTextureView");
+                return (GpuTextureView) m.invoke(texture);
+            } catch (NoSuchMethodException e) {
+                for (java.lang.reflect.Method m : texture.getClass().getMethods()) {
+                    if (GpuTextureView.class.isAssignableFrom(m.getReturnType())
+                            && m.getParameterCount() == 0) {
+                        return (GpuTextureView) m.invoke(texture);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error("Failed to get texture view for {}", textureId, e);
+        }
+        return null;
     }
 }

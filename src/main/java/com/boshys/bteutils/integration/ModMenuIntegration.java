@@ -9,13 +9,14 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 import me.shedaniel.autoconfig.AutoConfig;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.option.ControlsOptionsScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.*;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.gui.screens.options.controls.ControlsScreen;
+import net.minecraft.network.chat.Component;
 
 import java.awt.Color;
 import java.io.File;
@@ -30,11 +31,21 @@ public class ModMenuIntegration implements ModMenuApi {
     }
 
     public static class BoshysBTEUtilsConfigScreen extends Screen {
+
+        public void addRenderableWidget(net.minecraft.client.gui.components.AbstractWidget widget) {
+            // 26.2 FIX: Strict bounds check - widgets must be FULLY within screen.
+            // Partial off-screen widgets crash the scissor system in 26.2.
+            if (widget.getHeight() <= 0 || widget.getWidth() <= 0) return;
+            if (widget.getY() < 0) return;
+            if (widget.getY() + widget.getHeight() > this.height) return;
+            super.addRenderableWidget(widget);
+        }
+
         private final Screen parent;
         private int scrollOffset = 0;
 
         public BoshysBTEUtilsConfigScreen(Screen parent) {
-            super(Text.translatable("text.autoconfig.boshysbteutils.title"));
+            super(Component.translatable("text.autoconfig.boshysbteutils.title"));
             this.parent = parent;
         }
 
@@ -44,47 +55,47 @@ public class ModMenuIntegration implements ModMenuApi {
         }
 
         private void rebuildButtons() {
-            this.clearChildren();
+            this.clearWidgets();
             int centerX = this.width / 2;
             int startY = this.height / 4 - scrollOffset;
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.category.keybinds").styled(style -> style.withBold(true)),
-                    button -> this.client.setScreen(new TPLLKeybindScreen(this))
-            ).dimensions(centerX - 150, startY, 300, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.category.keybinds").withStyle(style -> style.withBold(true)),
+                    button -> this.minecraft.setScreenAndShow(new TPLLKeybindScreen(this))
+            ).bounds(centerX - 150, startY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.category.markers").styled(style -> style.withBold(true)),
-                    button -> this.client.setScreen(new TPLLMarkerScreen(this))
-            ).dimensions(centerX - 150, startY + 30, 300, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.category.markers").withStyle(style -> style.withBold(true)),
+                    button -> this.minecraft.setScreenAndShow(new TPLLMarkerScreen(this))
+            ).bounds(centerX - 150, startY + 30, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.category.lines").styled(style -> style.withBold(true)),
-                    button -> this.client.setScreen(new LineConnectionScreen(this))
-            ).dimensions(centerX - 150, startY + 60, 300, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.category.lines").withStyle(style -> style.withBold(true)),
+                    button -> this.minecraft.setScreenAndShow(new LineConnectionScreen(this))
+            ).bounds(centerX - 150, startY + 60, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.category.saved").styled(style -> style.withBold(true)),
-                    button -> this.client.setScreen(new SavedMarkersScreen(this))
-            ).dimensions(centerX - 150, startY + 90, 300, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.category.saved").withStyle(style -> style.withBold(true)),
+                    button -> this.minecraft.setScreenAndShow(new SavedMarkersScreen(this))
+            ).bounds(centerX - 150, startY + 90, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.category.kml").styled(style -> style.withBold(true)),
-                    button -> this.client.setScreen(new KMLImportingScreen(this))
-            ).dimensions(centerX - 150, startY + 120, 300, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.category.kml").withStyle(style -> style.withBold(true)),
+                    button -> this.minecraft.setScreenAndShow(new KMLImportingScreen(this))
+            ).bounds(centerX - 150, startY + 120, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.category.overlays").styled(style -> style.withBold(true)),
-                    button -> this.client.setScreen(new OverlaysScreen(this))
-            ).dimensions(centerX - 150, startY + 150, 300, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.category.overlays").withStyle(style -> style.withBold(true)),
+                    button -> this.minecraft.setScreenAndShow(new OverlaysScreen(this))
+            ).bounds(centerX - 150, startY + 150, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.done"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.done"),
                     button -> {
                         saveConfig();
-                        this.client.setScreen(parent);
+                        this.minecraft.setScreenAndShow(parent);
                     }
-            ).dimensions(centerX - 100, startY + 190, 200, 20).build());
+            ).bounds(centerX - 100, startY + 190, 200, 20).build());
         }
 
         @Override
@@ -92,8 +103,11 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
+                // content: 6 buttons * 30 spacing + 190 done button offset = ~220 from startY
+                // Ensure we can always see at least the done button (20px tall + padding)
+                int minVisible = 60; // space needed for done button at bottom
                 int contentHeight = 220;
-                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                int maxScroll = Math.max(0, contentHeight - (this.height - minVisible));
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
                 return true;
@@ -101,10 +115,9 @@ public class ModMenuIntegration implements ModMenuApi {
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
 
-        @Override
         public void close() {
             saveConfig();
-            this.client.setScreen(parent);
+            this.minecraft.setScreenAndShow(parent);
         }
 
         private void saveConfig() {
@@ -113,10 +126,20 @@ public class ModMenuIntegration implements ModMenuApi {
     }
 
     public static class TPLLKeybindScreen extends Screen {
+
+        public void addRenderableWidget(net.minecraft.client.gui.components.AbstractWidget widget) {
+            // 26.2 FIX: Strict bounds check - widgets must be FULLY within screen.
+            // Partial off-screen widgets crash the scissor system in 26.2.
+            if (widget.getHeight() <= 0 || widget.getWidth() <= 0) return;
+            if (widget.getY() < 0) return;
+            if (widget.getY() + widget.getHeight() > this.height) return;
+            super.addRenderableWidget(widget);
+        }
+
         private final Screen parent;
 
         public TPLLKeybindScreen(Screen parent) {
-            super(Text.translatable("gui.boshysbteutils.config.screen.keybinds"));
+            super(Component.translatable("gui.boshysbteutils.config.screen.keybinds"));
             this.parent = parent;
         }
 
@@ -125,47 +148,46 @@ public class ModMenuIntegration implements ModMenuApi {
             int centerX = this.width / 2;
             int startY = this.height / 6;
 
-            KeyBinding keybind = BoshysBTEUtils.tpllKeybind;
-            String keyName = keybind.getBoundKeyLocalizedText().getString();
+            KeyMapping keybind = BoshysBTEUtils.tpllKeybind;
+            String keyName = keybind.getTranslatedKeyMessage().getString();
             if (keyName.equalsIgnoreCase("key.keyboard.unknown")) {
-                keyName = Text.translatable("gui.boshysbteutils.config.keybind.not_bound").getString();
+                keyName = Component.translatable("gui.boshysbteutils.config.keybind.not_bound").getString();
             }
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.tpll_keybind_dynamic", keyName),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.tpll_keybind_dynamic", keyName),
                     button -> {
-                        this.client.setScreen(new ControlsOptionsScreen(this, this.client.options));
+                        this.minecraft.setScreenAndShow(new ControlsScreen(this, this.minecraft.options));
                     }
-            ).dimensions(centerX - 150, startY, 300, 20).build());
+            ).bounds(centerX - 150, startY, 300, 20).build());
 
             // ── Auto WorldEdit Lines on TPLL ──────────────────────────────
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.option.enable_auto_we_lines_tpll",
-                            config.enableAutoWorldEditLinesOnTpll ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.option.enable_auto_we_lines_tpll",
+                            config.enableAutoWorldEditLinesOnTpll ? Component.translatable("gui.boshysbteutils.config.button.on") : Component.translatable("gui.boshysbteutils.config.button.off")),
                     button -> {
                         config.enableAutoWorldEditLinesOnTpll = !config.enableAutoWorldEditLinesOnTpll;
                         saveConfig();
-                        this.client.setScreen(new TPLLKeybindScreen(parent));
+                        this.minecraft.setScreenAndShow(new TPLLKeybindScreen(parent));
                     }
-            ).dimensions(centerX - 150, startY + 35, 300, 20).build());
+            ).bounds(centerX - 150, startY + 35, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.auto_we_lines_tpll.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.auto_we_lines_tpll.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 60, 300, 20).build());
+            ).bounds(centerX - 150, startY + 60, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.back"),
-                    button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, this.height - 40, 200, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.back"),
+                    button -> this.minecraft.setScreenAndShow(parent)
+            ).bounds(centerX - 100, this.height - 40, 200, 20).build());
         }
 
-        @Override
         public void close() {
             saveConfig();
-            this.client.setScreen(parent);
+            this.minecraft.setScreenAndShow(parent);
         }
 
         private void saveConfig() {
@@ -174,15 +196,25 @@ public class ModMenuIntegration implements ModMenuApi {
     }
 
     public static class TPLLMarkerScreen extends Screen {
+
+        public void addRenderableWidget(net.minecraft.client.gui.components.AbstractWidget widget) {
+            // 26.2 FIX: Strict bounds check - widgets must be FULLY within screen.
+            // Partial off-screen widgets crash the scissor system in 26.2.
+            if (widget.getHeight() <= 0 || widget.getWidth() <= 0) return;
+            if (widget.getY() < 0) return;
+            if (widget.getY() + widget.getHeight() > this.height) return;
+            super.addRenderableWidget(widget);
+        }
+
         private final Screen parent;
         private int scrollOffset = 0;
-        private TextFieldWidget hexField;
-        private TextFieldWidget opacityField;
-        private TextFieldWidget scaleField;
-        private TextFieldWidget confirmLimitField;
+        private EditBox hexField;
+        private EditBox opacityField;
+        private EditBox scaleField;
+        private EditBox confirmLimitField;
 
         public TPLLMarkerScreen(Screen parent) {
-            super(Text.translatable("gui.boshysbteutils.config.screen.markers"));
+            super(Component.translatable("gui.boshysbteutils.config.screen.markers"));
             this.parent = parent;
         }
 
@@ -192,119 +224,119 @@ public class ModMenuIntegration implements ModMenuApi {
         }
 
         private void rebuildButtons() {
-            this.clearChildren();
+            this.clearWidgets();
             int centerX = this.width / 2;
             int startY = this.height / 6 - scrollOffset;
 
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.option.enable_markers",
-                            config.enableMarkers ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.option.enable_markers",
+                            config.enableMarkers ? Component.translatable("gui.boshysbteutils.config.button.on") : Component.translatable("gui.boshysbteutils.config.button.off")),
                     button -> {
                         config.enableMarkers = !config.enableMarkers;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY, 300, 20).build());
+            ).bounds(centerX - 150, startY, 300, 20).build());
 
             // ── TPLL Marker Mode (4-option selector) ─────────────────────────────
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 25, 300, 20).build());
+            ).bounds(centerX - 150, startY + 25, 300, 20).build());
 
             String modeDisabled = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.DISABLED ? "X" : " ") + " ] " +
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.disabled").getString();
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.disabled").getString();
             String modeKeybindAndManual = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_AND_MANUAL ? "X" : " ") + " ] " +
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.keybind_and_manual").getString();
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.keybind_and_manual").getString();
             String modeKeybindOnly = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_ONLY ? "X" : " ") + " ] " +
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.keybind_only").getString();
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.keybind_only").getString();
             String modeManualOnly = "[ " + (config.tpllMarkerMode == BoshysBTEUtilsConfig.TpllMarkerMode.MANUAL_ONLY ? "X" : " ") + " ] " +
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.manual_only").getString();
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.manual_only").getString();
 
             // Row 1: Disabled | Keybind & Manual
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(modeDisabled),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(modeDisabled),
                     button -> {
                         config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.DISABLED;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 50, 145, 20).build());
+            ).bounds(centerX - 150, startY + 50, 145, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(modeKeybindAndManual),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(modeKeybindAndManual),
                     button -> {
                         config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_AND_MANUAL;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX + 5, startY + 50, 145, 20).build());
+            ).bounds(centerX + 5, startY + 50, 145, 20).build());
 
             // Row 2: Keybind Only | Manual Only
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(modeKeybindOnly),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(modeKeybindOnly),
                     button -> {
                         config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.KEYBIND_ONLY;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 75, 145, 20).build());
+            ).bounds(centerX - 150, startY + 75, 145, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(modeManualOnly),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(modeManualOnly),
                     button -> {
                         config.tpllMarkerMode = BoshysBTEUtilsConfig.TpllMarkerMode.MANUAL_ONLY;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX + 5, startY + 75, 145, 20).build());
+            ).bounds(centerX + 5, startY + 75, 145, 20).build());
 
             // Mode description
             String modeDescription = switch(config.tpllMarkerMode) {
-                case DISABLED -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.disabled").getString();
-                case KEYBIND_AND_MANUAL -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.keybind_and_manual").getString();
-                case KEYBIND_ONLY -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.keybind_only").getString();
-                case MANUAL_ONLY -> Text.translatable("gui.boshysbteutils.config.tpll_mode.desc.manual_only").getString();
+                case DISABLED -> Component.translatable("gui.boshysbteutils.config.tpll_mode.desc.disabled").getString();
+                case KEYBIND_AND_MANUAL -> Component.translatable("gui.boshysbteutils.config.tpll_mode.desc.keybind_and_manual").getString();
+                case KEYBIND_ONLY -> Component.translatable("gui.boshysbteutils.config.tpll_mode.desc.keybind_only").getString();
+                case MANUAL_ONLY -> Component.translatable("gui.boshysbteutils.config.tpll_mode.desc.manual_only").getString();
             };
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal("§7" + modeDescription),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal("§7" + modeDescription),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 100, 300, 15).build());
+            ).bounds(centerX - 150, startY + 100, 300, 15).build());
 
             // Warning for manual TPLL detection - always visible
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.warning.line1"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.warning.line1"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 150, 300, 15).build());
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.warning.line2"),
+            ).bounds(centerX - 150, startY + 150, 300, 15).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.warning.line2"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 165, 300, 15).build());
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.tpll_mode.warning.line3"),
+            ).bounds(centerX - 150, startY + 165, 300, 15).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.tpll_mode.warning.line3"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 180, 300, 15).build());
+            ).bounds(centerX - 150, startY + 180, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.option.enable_clear_confirmation",
-                            config.enableClearConfirmation ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.option.enable_clear_confirmation",
+                            config.enableClearConfirmation ? Component.translatable("gui.boshysbteutils.config.button.on") : Component.translatable("gui.boshysbteutils.config.button.off")),
                     button -> {
                         config.enableClearConfirmation = !config.enableClearConfirmation;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 125, 300, 20).build());
+            ).bounds(centerX - 150, startY + 125, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.confirm_limit"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.confirm_limit"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 200, 140, 20).build());
+            ).bounds(centerX - 150, startY + 200, 140, 20).build());
 
-            confirmLimitField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 200, 140, 20, Text.translatable("gui.boshysbteutils.config.label.confirm_limit"));
-            confirmLimitField.setText(String.valueOf(config.clearConfirmLimit));
-            confirmLimitField.setChangedListener(text -> {
+            confirmLimitField = new EditBox(this.font, centerX + 10, startY + 200, 140, 20, Component.translatable("gui.boshysbteutils.config.label.confirm_limit"));
+            confirmLimitField.setValue(String.valueOf(config.clearConfirmLimit));
+            confirmLimitField.setResponder(text -> {
                 try {
                     int val = Integer.parseInt(text);
                     if (val >= 1 && val <= 1000) {
@@ -314,19 +346,19 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(confirmLimitField);
+            this.addRenderableWidget(confirmLimitField);
 
             Color colour = new Color(config.markerColour);
             String colourHex = String.format("%02X%02X%02X", colour.getRed(), colour.getGreen(), colour.getBlue());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.marker_colour"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.marker_colour"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 230, 140, 20).build());
+            ).bounds(centerX - 150, startY + 230, 140, 20).build());
 
-            hexField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 230, 140, 20, Text.translatable("gui.boshysbteutils.config.label.marker_colour"));
-            hexField.setText(colourHex);
-            hexField.setChangedListener(text -> {
+            hexField = new EditBox(this.font, centerX + 10, startY + 230, 140, 20, Component.translatable("gui.boshysbteutils.config.label.marker_colour"));
+            hexField.setValue(colourHex);
+            hexField.setResponder(text -> {
                 try {
                     if (text.length() == 6) {
                         config.markerColour = Integer.parseInt(text, 16);
@@ -335,16 +367,16 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(hexField);
+            this.addRenderableWidget(hexField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.opacity"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.opacity"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 260, 140, 20).build());
+            ).bounds(centerX - 150, startY + 260, 140, 20).build());
 
-            opacityField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 260, 140, 20, Text.translatable("gui.boshysbteutils.config.label.opacity"));
-            opacityField.setText(String.format("%.2f", config.markerOpacity));
-            opacityField.setChangedListener(text -> {
+            opacityField = new EditBox(this.font, centerX + 10, startY + 260, 140, 20, Component.translatable("gui.boshysbteutils.config.label.opacity"));
+            opacityField.setValue(String.format("%.2f", config.markerOpacity));
+            opacityField.setResponder(text -> {
                 try {
                     float val = Float.parseFloat(text);
                     if (val >= 0.0f && val <= 1.0f) {
@@ -354,16 +386,16 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(opacityField);
+            this.addRenderableWidget(opacityField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.scale"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.scale"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 290, 140, 20).build());
+            ).bounds(centerX - 150, startY + 290, 140, 20).build());
 
-            scaleField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 290, 140, 20, Text.translatable("gui.boshysbteutils.config.label.scale"));
-            scaleField.setText(String.format("%.2f", config.markerScale));
-            scaleField.setChangedListener(text -> {
+            scaleField = new EditBox(this.font, centerX + 10, startY + 290, 140, 20, Component.translatable("gui.boshysbteutils.config.label.scale"));
+            scaleField.setValue(String.format("%.2f", config.markerScale));
+            scaleField.setResponder(text -> {
                 try {
                     float val = Float.parseFloat(text);
                     if (val >= 0.01f && val <= 1.0f) {
@@ -373,21 +405,21 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(scaleField);
+            this.addRenderableWidget(scaleField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.update_design"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.update_design"),
                     button -> {
                         if (!config.enableMarkers) {
-                            if (this.client.player != null) {
-                                this.client.player.sendMessage(Text.translatable("gui.boshysbteutils.config.error.markers_disabled"), false);
+                            if (this.minecraft.player != null) {
+                                this.minecraft.player.sendSystemMessage(Component.translatable("gui.boshysbteutils.config.error.markers_disabled"));
                             }
                             return;
                         }
 
                         if (BoshysBTEUtils.markers.isEmpty()) {
-                            if (this.client.player != null) {
-                                this.client.player.sendMessage(Text.translatable("gui.boshysbteutils.config.error.no_markers"), false);
+                            if (this.minecraft.player != null) {
+                                this.minecraft.player.sendSystemMessage(Component.translatable("gui.boshysbteutils.config.error.no_markers"));
                             }
                             return;
                         }
@@ -402,8 +434,8 @@ public class ModMenuIntegration implements ModMenuApi {
                         }
 
                         if (hasUnloadedMarkers) {
-                            if (this.client.player != null) {
-                                this.client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.update.unloaded_error"), false);
+                            if (this.minecraft.player != null) {
+                                this.minecraft.player.sendSystemMessage(Component.translatable("command.boshysbteutils.marker.update.unloaded_error"));
                             }
                             return;
                         }
@@ -415,85 +447,85 @@ public class ModMenuIntegration implements ModMenuApi {
                                 MarkerData.updateMarkerDesign(marker);
                                 updatedCount++;
                             }
-                            if (this.client.player != null) {
-                                this.client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.updated.selected", updatedCount), false);
+                            if (this.minecraft.player != null) {
+                                this.minecraft.player.sendSystemMessage(Component.translatable("command.boshysbteutils.marker.updated.selected", updatedCount));
                             }
                         } else {
                             for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                                 MarkerData.updateMarkerDesign(marker);
                                 updatedCount++;
                             }
-                            if (this.client.player != null) {
-                                this.client.player.sendMessage(Text.translatable("command.boshysbteutils.marker.updated", updatedCount), false);
+                            if (this.minecraft.player != null) {
+                                this.minecraft.player.sendSystemMessage(Component.translatable("command.boshysbteutils.marker.updated", updatedCount));
                             }
                         }
                     }
-            ).dimensions(centerX - 150, startY + 325, 300, 20).build());
+            ).bounds(centerX - 150, startY + 325, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.clear_all"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.clear_all"),
                     button -> {
                         MarkerData.clearAllMarkers();
-                        if (this.client.player != null) {
-                            this.client.player.sendMessage(Text.translatable("gui.boshysbteutils.config.message.cleared_all"), false);
+                        if (this.minecraft.player != null) {
+                            this.minecraft.player.sendSystemMessage(Component.translatable("gui.boshysbteutils.config.message.cleared_all"));
                         }
                     }
-            ).dimensions(centerX - 150, startY + 355, 300, 20).build());
+            ).bounds(centerX - 150, startY + 355, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.add_markers").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.add_markers").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 395, 300, 20).build());
+            ).bounds(centerX - 150, startY + 395, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.add_markers.command"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.add_markers.command"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 420, 300, 15).build());
+            ).bounds(centerX - 150, startY + 420, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.add_markers.keybind"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.add_markers.keybind"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 438, 300, 15).build());
+            ).bounds(centerX - 150, startY + 438, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.clear_markers").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.clear_markers").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 486, 300, 20).build());
+            ).bounds(centerX - 150, startY + 486, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.clear_markers.command"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.clear_markers.command"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 511, 300, 15).build());
+            ).bounds(centerX - 150, startY + 511, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.clear_markers.keybind"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.clear_markers.keybind"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 529, 300, 15).build());
+            ).bounds(centerX - 150, startY + 529, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.clear_markers.button"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.clear_markers.button"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 547, 300, 15).build());
+            ).bounds(centerX - 150, startY + 547, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.multiselect").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.multiselect").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 577, 300, 20).build());
+            ).bounds(centerX - 150, startY + 577, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.multiselect.ctrl"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.multiselect.ctrl"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 602, 300, 15).build());
+            ).bounds(centerX - 150, startY + 602, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.multiselect.mac"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.multiselect.mac"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 620, 300, 15).build());
+            ).bounds(centerX - 150, startY + 620, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.back"),
-                    button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 660, 200, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.back"),
+                    button -> this.minecraft.setScreenAndShow(parent)
+            ).bounds(centerX - 100, startY + 660, 200, 20).build());
         }
 
         @Override
@@ -501,8 +533,10 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
+                // Last content is at ~660, back button at ~660+20, need some padding
+                int minVisible = 80; // ensure back button and some content visible
                 int contentHeight = 695;
-                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                int maxScroll = Math.max(0, contentHeight - (this.height - minVisible));
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
                 return true;
@@ -510,10 +544,9 @@ public class ModMenuIntegration implements ModMenuApi {
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
 
-        @Override
         public void close() {
             saveConfig();
-            this.client.setScreen(parent);
+            this.minecraft.setScreenAndShow(parent);
         }
 
         private void saveConfig() {
@@ -522,16 +555,26 @@ public class ModMenuIntegration implements ModMenuApi {
     }
 
     public static class LineConnectionScreen extends Screen {
+
+        public void addRenderableWidget(net.minecraft.client.gui.components.AbstractWidget widget) {
+            // 26.2 FIX: Strict bounds check - widgets must be FULLY within screen.
+            // Partial off-screen widgets crash the scissor system in 26.2.
+            if (widget.getHeight() <= 0 || widget.getWidth() <= 0) return;
+            if (widget.getY() < 0) return;
+            if (widget.getY() + widget.getHeight() > this.height) return;
+            super.addRenderableWidget(widget);
+        }
+
         private final Screen parent;
         private int scrollOffset = 0;
-        private TextFieldWidget hexField;
-        private TextFieldWidget opacityField;
-        private TextFieldWidget thicknessField;
-        private TextFieldWidget circleThicknessField;
-        private TextFieldWidget circleDensityField;
+        private EditBox hexField;
+        private EditBox opacityField;
+        private EditBox thicknessField;
+        private EditBox circleThicknessField;
+        private EditBox circleDensityField;
 
         public LineConnectionScreen(Screen parent) {
-            super(Text.translatable("gui.boshysbteutils.config.screen.lines"));
+            super(Component.translatable("gui.boshysbteutils.config.screen.lines"));
             this.parent = parent;
         }
 
@@ -541,33 +584,33 @@ public class ModMenuIntegration implements ModMenuApi {
         }
 
         private void rebuildButtons() {
-            this.clearChildren();
+            this.clearWidgets();
             int centerX = this.width / 2;
             int startY = this.height / 6 - scrollOffset;
 
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.option.enable_auto_line_connection",
-                            config.enableAutoLineConnection ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.option.enable_auto_line_connection",
+                            config.enableAutoLineConnection ? Component.translatable("gui.boshysbteutils.config.button.on") : Component.translatable("gui.boshysbteutils.config.button.off")),
                     button -> {
                         config.enableAutoLineConnection = !config.enableAutoLineConnection;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY, 300, 20).build());
+            ).bounds(centerX - 150, startY, 300, 20).build());
 
             Color colour = new Color(config.lineColour);
             String colourHex = String.format("%02X%02X%02X", colour.getRed(), colour.getGreen(), colour.getBlue());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.line_colour"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.line_colour"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 30, 140, 20).build());
+            ).bounds(centerX - 150, startY + 30, 140, 20).build());
 
-            hexField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 30, 140, 20, Text.translatable("gui.boshysbteutils.config.label.line_colour"));
-            hexField.setText(colourHex);
-            hexField.setChangedListener(text -> {
+            hexField = new EditBox(this.font, centerX + 10, startY + 30, 140, 20, Component.translatable("gui.boshysbteutils.config.label.line_colour"));
+            hexField.setValue(colourHex);
+            hexField.setResponder(text -> {
                 try {
                     if (text.length() == 6) {
                         config.lineColour = Integer.parseInt(text, 16);
@@ -576,16 +619,16 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(hexField);
+            this.addRenderableWidget(hexField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.line_opacity"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.line_opacity"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 60, 140, 20).build());
+            ).bounds(centerX - 150, startY + 60, 140, 20).build());
 
-            opacityField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 60, 140, 20, Text.translatable("gui.boshysbteutils.config.label.line_opacity"));
-            opacityField.setText(String.format("%.2f", config.lineOpacity));
-            opacityField.setChangedListener(text -> {
+            opacityField = new EditBox(this.font, centerX + 10, startY + 60, 140, 20, Component.translatable("gui.boshysbteutils.config.label.line_opacity"));
+            opacityField.setValue(String.format("%.2f", config.lineOpacity));
+            opacityField.setResponder(text -> {
                 try {
                     float val = Float.parseFloat(text);
                     if (val >= 0.0f && val <= 1.0f) {
@@ -595,16 +638,16 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(opacityField);
+            this.addRenderableWidget(opacityField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.line_thickness"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.line_thickness"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 90, 140, 20).build());
+            ).bounds(centerX - 150, startY + 90, 140, 20).build());
 
-            thicknessField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 90, 140, 20, Text.translatable("gui.boshysbteutils.config.label.line_thickness"));
-            thicknessField.setText(String.format("%.1f", config.lineThickness));
-            thicknessField.setChangedListener(text -> {
+            thicknessField = new EditBox(this.font, centerX + 10, startY + 90, 140, 20, Component.translatable("gui.boshysbteutils.config.label.line_thickness"));
+            thicknessField.setValue(String.format("%.1f", config.lineThickness));
+            thicknessField.setResponder(text -> {
                 try {
                     float val = Float.parseFloat(text);
                     if (val >= 0.1f && val <= 10.0f) {
@@ -614,22 +657,22 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(thicknessField);
+            this.addRenderableWidget(thicknessField);
 
             // ── Circle settings ──────────────────────────────────────────────
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.circle.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.circle.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 125, 300, 20).build());
+            ).bounds(centerX - 150, startY + 125, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.circle_thickness"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.circle_thickness"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 150, 140, 20).build());
+            ).bounds(centerX - 150, startY + 150, 140, 20).build());
 
-            circleThicknessField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 150, 140, 20, Text.translatable("gui.boshysbteutils.config.label.circle_thickness"));
-            circleThicknessField.setText(String.format("%.2f", config.circleThickness));
-            circleThicknessField.setChangedListener(text -> {
+            circleThicknessField = new EditBox(this.font, centerX + 10, startY + 150, 140, 20, Component.translatable("gui.boshysbteutils.config.label.circle_thickness"));
+            circleThicknessField.setValue(String.format("%.2f", config.circleThickness));
+            circleThicknessField.setResponder(text -> {
                 try {
                     float val = Float.parseFloat(text);
                     if (val >= 0.01f && val <= 10.0f) {
@@ -639,16 +682,16 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(circleThicknessField);
+            this.addRenderableWidget(circleThicknessField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.circle_density"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.circle_density"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 180, 140, 20).build());
+            ).bounds(centerX - 150, startY + 180, 140, 20).build());
 
-            circleDensityField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 180, 140, 20, Text.translatable("gui.boshysbteutils.config.label.circle_density"));
-            circleDensityField.setText(String.format("%.2f", config.circleSegmentPercent));
-            circleDensityField.setChangedListener(text -> {
+            circleDensityField = new EditBox(this.font, centerX + 10, startY + 180, 140, 20, Component.translatable("gui.boshysbteutils.config.label.circle_density"));
+            circleDensityField.setValue(String.format("%.2f", config.circleSegmentPercent));
+            circleDensityField.setResponder(text -> {
                 try {
                     float val = Float.parseFloat(text);
                     if (val >= 0.1f && val <= 50.0f) {
@@ -658,73 +701,73 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(circleDensityField);
+            this.addRenderableWidget(circleDensityField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.circle.density.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.circle.density.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 205, 300, 15).build());
+            ).bounds(centerX - 150, startY + 205, 300, 15).build());
 
             // ── Help sections ──────────────────────────────────────────────
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.lines.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.lines.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 240, 300, 20).build());
+            ).bounds(centerX - 150, startY + 240, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.lines.auto"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.lines.auto"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 265, 300, 15).build());
+            ).bounds(centerX - 150, startY + 265, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.lines.manual"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.lines.manual"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 283, 300, 15).build());
+            ).bounds(centerX - 150, startY + 283, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.lines.select"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.lines.select"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 301, 300, 15).build());
+            ).bounds(centerX - 150, startY + 301, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.lines.connect"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.lines.connect"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 319, 300, 15).build());
+            ).bounds(centerX - 150, startY + 319, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.lines.disconnect"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.lines.disconnect"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 337, 300, 15).build());
+            ).bounds(centerX - 150, startY + 337, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.lines.delete"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.lines.delete"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 355, 300, 15).build());
+            ).bounds(centerX - 150, startY + 355, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.keybinds.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.keybinds.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 385, 300, 20).build());
+            ).bounds(centerX - 150, startY + 385, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.keybinds.right_click"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.keybinds.right_click"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 410, 300, 15).build());
+            ).bounds(centerX - 150, startY + 410, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.keybinds.delete"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.keybinds.delete"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 428, 300, 15).build());
+            ).bounds(centerX - 150, startY + 428, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.help.keybinds.multiselect"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.help.keybinds.multiselect"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 446, 300, 15).build());
+            ).bounds(centerX - 150, startY + 446, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.back"),
-                    button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 490, 200, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.back"),
+                    button -> this.minecraft.setScreenAndShow(parent)
+            ).bounds(centerX - 100, startY + 490, 200, 20).build());
         }
 
         @Override
@@ -732,8 +775,9 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
+                int minVisible = 80;
                 int contentHeight = 530;
-                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                int maxScroll = Math.max(0, contentHeight - (this.height - minVisible));
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
                 return true;
@@ -741,10 +785,9 @@ public class ModMenuIntegration implements ModMenuApi {
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
 
-        @Override
         public void close() {
             saveConfig();
-            this.client.setScreen(parent);
+            this.minecraft.setScreenAndShow(parent);
         }
 
         private void saveConfig() {
@@ -752,13 +795,23 @@ public class ModMenuIntegration implements ModMenuApi {
         }
     }
     public static class SavedMarkersScreen extends Screen {
+
+        public void addRenderableWidget(net.minecraft.client.gui.components.AbstractWidget widget) {
+            // 26.2 FIX: Strict bounds check - widgets must be FULLY within screen.
+            // Partial off-screen widgets crash the scissor system in 26.2.
+            if (widget.getHeight() <= 0 || widget.getWidth() <= 0) return;
+            if (widget.getY() < 0) return;
+            if (widget.getY() + widget.getHeight() > this.height) return;
+            super.addRenderableWidget(widget);
+        }
+
         private final Screen parent;
         private int scrollOffset = 0;
-        private TextFieldWidget pathField;
-        private TextFieldWidget autosaveIntervalField;
+        private EditBox pathField;
+        private EditBox autosaveIntervalField;
 
         public SavedMarkersScreen(Screen parent) {
-            super(Text.translatable("gui.boshysbteutils.config.screen.saved"));
+            super(Component.translatable("gui.boshysbteutils.config.screen.saved"));
             this.parent = parent;
         }
 
@@ -768,63 +821,63 @@ public class ModMenuIntegration implements ModMenuApi {
         }
 
         private void rebuildButtons() {
-            this.clearChildren();
+            this.clearWidgets();
             int centerX = this.width / 2;
             int startY = this.height / 6 - scrollOffset;
 
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
             Path currentPath = BoshysBTEUtils.INSTANCE.getMarkerStorage().getMarkersSavePath();
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.save_location").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.save_location").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY, 300, 20).build());
+            ).bounds(centerX - 150, startY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(currentPath.toString()),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(currentPath.toString()),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 25, 300, 20).build());
+            ).bounds(centerX - 150, startY + 25, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.custom_path"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.custom_path"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 55, 300, 20).build());
+            ).bounds(centerX - 150, startY + 55, 300, 20).build());
 
-            pathField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 80, 300, 20, Text.translatable("gui.boshysbteutils.config.label.custom_path"));
-            pathField.setText(config.savedMarkersFolderPath != null ? config.savedMarkersFolderPath : "");
+            pathField = new EditBox(this.font, centerX - 150, startY + 80, 300, 20, Component.translatable("gui.boshysbteutils.config.label.custom_path"));
+            pathField.setValue(config.savedMarkersFolderPath != null ? config.savedMarkersFolderPath : "");
             pathField.setMaxLength(2000);
-            pathField.setChangedListener(text -> {
+            pathField.setResponder(text -> {
                 config.savedMarkersFolderPath = text;
                 if (BoshysBTEUtils.INSTANCE != null) {
                     BoshysBTEUtils.INSTANCE.getMarkerStorage().updateMarkersSavePath();
                 }
                 saveConfig();
             });
-            this.addDrawableChild(pathField);
+            this.addRenderableWidget(pathField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.autosave.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.autosave.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 115, 300, 20).build());
+            ).bounds(centerX - 150, startY + 115, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.option.enable_autosave",
-                            config.enableAutosave ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.option.enable_autosave",
+                            config.enableAutosave ? Component.translatable("gui.boshysbteutils.config.button.on") : Component.translatable("gui.boshysbteutils.config.button.off")),
                     button -> {
                         config.enableAutosave = !config.enableAutosave;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 140, 300, 20).build());
+            ).bounds(centerX - 150, startY + 140, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.autosave_interval"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.autosave_interval"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 170, 300, 20).build());
+            ).bounds(centerX - 150, startY + 170, 300, 20).build());
 
-            autosaveIntervalField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 195, 300, 20, Text.translatable("gui.boshysbteutils.config.label.autosave_interval"));
-            autosaveIntervalField.setText(String.valueOf(config.autosaveIntervalMinutes));
-            autosaveIntervalField.setChangedListener(text -> {
+            autosaveIntervalField = new EditBox(this.font, centerX - 150, startY + 195, 300, 20, Component.translatable("gui.boshysbteutils.config.label.autosave_interval"));
+            autosaveIntervalField.setValue(String.valueOf(config.autosaveIntervalMinutes));
+            autosaveIntervalField.setResponder(text -> {
                 try {
                     int val = Integer.parseInt(text);
                     if (val >= 0 && val <= 1440) {
@@ -834,110 +887,110 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(autosaveIntervalField);
+            this.addRenderableWidget(autosaveIntervalField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 230, 300, 20).build());
+            ).bounds(centerX - 150, startY + 230, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.save"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.save"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 255, 300, 15).build());
+            ).bounds(centerX - 150, startY + 255, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.save.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.save.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 273, 300, 15).build());
+            ).bounds(centerX - 150, startY + 273, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.update"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.update"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 296, 300, 15).build());
+            ).bounds(centerX - 150, startY + 296, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.update.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.update.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 314, 300, 15).build());
+            ).bounds(centerX - 150, startY + 314, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.load"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.load"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 337, 300, 15).build());
+            ).bounds(centerX - 150, startY + 337, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.load.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.load.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 355, 300, 15).build());
+            ).bounds(centerX - 150, startY + 355, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.hide"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.hide"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 378, 300, 15).build());
+            ).bounds(centerX - 150, startY + 378, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.hide.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.hide.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 396, 300, 15).build());
+            ).bounds(centerX - 150, startY + 396, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.delete"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.delete"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 419, 300, 15).build());
+            ).bounds(centerX - 150, startY + 419, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.delete.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.delete.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 437, 300, 15).build());
+            ).bounds(centerX - 150, startY + 437, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.merge"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.merge"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 460, 300, 15).build());
+            ).bounds(centerX - 150, startY + 460, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.merge.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.merge.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 478, 300, 15).build());
+            ).bounds(centerX - 150, startY + 478, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.move"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.move"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 501, 300, 15).build());
+            ).bounds(centerX - 150, startY + 501, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.move.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.move.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 519, 300, 15).build());
+            ).bounds(centerX - 150, startY + 519, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.loaded_files.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.loaded_files.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 549, 300, 20).build());
+            ).bounds(centerX - 150, startY + 549, 300, 20).build());
 
             int fileY = startY + 574;
             if (BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().isEmpty()) {
-                this.addDrawableChild(ButtonWidget.builder(
-                        Text.translatable("gui.boshysbteutils.config.loaded_files.none"),
+                this.addRenderableWidget(Button.builder(
+                        Component.translatable("gui.boshysbteutils.config.loaded_files.none"),
                         button -> {}
-                ).dimensions(centerX - 150, fileY, 300, 15).build());
+                ).bounds(centerX - 150, fileY, 300, 15).build());
                 fileY += 20;
             } else {
                 for (String filename : BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().keySet()) {
                     MarkerData.SavedMarkerFile file = BoshysBTEUtils.INSTANCE.getMarkerStorage().getLoadedFiles().get(filename);
-                    this.addDrawableChild(ButtonWidget.builder(
-                            Text.translatable("gui.boshysbteutils.config.loaded_files.entry", filename, file.markers.size()),
+                    this.addRenderableWidget(Button.builder(
+                            Component.translatable("gui.boshysbteutils.config.loaded_files.entry", filename, file.markers.size()),
                             button -> {}
-                    ).dimensions(centerX - 150, fileY, 300, 15).build());
+                    ).bounds(centerX - 150, fileY, 300, 15).build());
                     fileY += 18;
                 }
             }
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.back"),
-                    button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, fileY + 20, 200, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.back"),
+                    button -> this.minecraft.setScreenAndShow(parent)
+            ).bounds(centerX - 100, fileY + 20, 200, 20).build());
         }
 
         @Override
@@ -945,8 +998,9 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
+                int minVisible = 80;
                 int contentHeight = 620;
-                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                int maxScroll = Math.max(0, contentHeight - (this.height - minVisible));
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
                 return true;
@@ -954,10 +1008,9 @@ public class ModMenuIntegration implements ModMenuApi {
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
 
-        @Override
         public void close() {
             saveConfig();
-            this.client.setScreen(parent);
+            this.minecraft.setScreenAndShow(parent);
         }
 
         private void saveConfig() {
@@ -966,18 +1019,28 @@ public class ModMenuIntegration implements ModMenuApi {
     }
 
     public static class KMLImportingScreen extends Screen {
+
+        public void addRenderableWidget(net.minecraft.client.gui.components.AbstractWidget widget) {
+            // 26.2 FIX: Strict bounds check - widgets must be FULLY within screen.
+            // Partial off-screen widgets crash the scissor system in 26.2.
+            if (widget.getHeight() <= 0 || widget.getWidth() <= 0) return;
+            if (widget.getY() < 0) return;
+            if (widget.getY() + widget.getHeight() > this.height) return;
+            super.addRenderableWidget(widget);
+        }
+
         private final Screen parent;
         private int scrollOffset = 0;
-        private TextFieldWidget delayField;
-        private TextFieldWidget startDelayField;
-        private TextFieldWidget pathField;
-        private TextFieldWidget postCommandsField;
-        private TextFieldWidget worldEditBlockField;
-        private TextFieldWidget lockedAltitudeField;
-        private TextFieldWidget altitudeOffsetField;
+        private EditBox delayField;
+        private EditBox startDelayField;
+        private EditBox pathField;
+        private EditBox postCommandsField;
+        private EditBox worldEditBlockField;
+        private EditBox lockedAltitudeField;
+        private EditBox altitudeOffsetField;
 
         public KMLImportingScreen(Screen parent) {
-            super(Text.translatable("gui.boshysbteutils.config.screen.kml"));
+            super(Component.translatable("gui.boshysbteutils.config.screen.kml"));
             this.parent = parent;
         }
 
@@ -987,50 +1050,50 @@ public class ModMenuIntegration implements ModMenuApi {
         }
 
         private void rebuildButtons() {
-            this.clearChildren();
+            this.clearWidgets();
             int centerX = this.width / 2;
             int startY = this.height / 6 - scrollOffset;
 
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
             Path currentPath = MarkerStorage.getKmlSavePath();
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.kml_folder").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.kml_folder").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY, 300, 20).build());
+            ).bounds(centerX - 150, startY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(currentPath.toString()),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(currentPath.toString()),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 25, 300, 20).build());
+            ).bounds(centerX - 150, startY + 25, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.kml_custom_path"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.kml_custom_path"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 55, 300, 20).build());
+            ).bounds(centerX - 150, startY + 55, 300, 20).build());
 
-            pathField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 80, 300, 20, Text.translatable("gui.boshysbteutils.config.label.kml_custom_path"));
-            pathField.setText(config.kmlFolderPath != null ? config.kmlFolderPath : "");
+            pathField = new EditBox(this.font, centerX - 150, startY + 80, 300, 20, Component.translatable("gui.boshysbteutils.config.label.kml_custom_path"));
+            pathField.setValue(config.kmlFolderPath != null ? config.kmlFolderPath : "");
             pathField.setMaxLength(2000);
-            pathField.setChangedListener(text -> {
+            pathField.setResponder(text -> {
                 config.kmlFolderPath = text;
                 saveConfig();
             });
-            this.addDrawableChild(pathField);
+            this.addRenderableWidget(pathField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.import_settings").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.import_settings").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 115, 300, 20).build());
+            ).bounds(centerX - 150, startY + 115, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.kml_delay"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.kml_delay"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 140, 300, 20).build());
+            ).bounds(centerX - 150, startY + 140, 300, 20).build());
 
-            delayField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 165, 300, 20, Text.translatable("gui.boshysbteutils.config.label.kml_delay"));
-            delayField.setText(String.valueOf(config.kmlImportDelayTicks));
-            delayField.setChangedListener(text -> {
+            delayField = new EditBox(this.font, centerX - 150, startY + 165, 300, 20, Component.translatable("gui.boshysbteutils.config.label.kml_delay"));
+            delayField.setValue(String.valueOf(config.kmlImportDelayTicks));
+            delayField.setResponder(text -> {
                 try {
                     int val = Integer.parseInt(text);
                     if (val >= 1 && val <= 100) {
@@ -1040,16 +1103,16 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(delayField);
+            this.addRenderableWidget(delayField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.kml_start_delay"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.kml_start_delay"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 195, 300, 20).build());
+            ).bounds(centerX - 150, startY + 195, 300, 20).build());
 
-            startDelayField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 220, 300, 20, Text.translatable("gui.boshysbteutils.config.label.kml_start_delay"));
-            startDelayField.setText(String.valueOf(config.kmlImportStartDelaySeconds));
-            startDelayField.setChangedListener(text -> {
+            startDelayField = new EditBox(this.font, centerX - 150, startY + 220, 300, 20, Component.translatable("gui.boshysbteutils.config.label.kml_start_delay"));
+            startDelayField.setValue(String.valueOf(config.kmlImportStartDelaySeconds));
+            startDelayField.setResponder(text -> {
                 try {
                     int val = Integer.parseInt(text);
                     if (val >= 0 && val <= 10) {
@@ -1059,84 +1122,84 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(startDelayField);
+            this.addRenderableWidget(startDelayField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.kml_post_commands").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.kml_post_commands").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 255, 300, 20).build());
+            ).bounds(centerX - 150, startY + 255, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.post_commands.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.post_commands.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 275, 300, 15).build());
+            ).bounds(centerX - 150, startY + 275, 300, 15).build());
 
-            postCommandsField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 295, 300, 20, Text.translatable("gui.boshysbteutils.config.label.kml_post_commands"));
-            postCommandsField.setText(config.kmlPostImportCommands != null ? config.kmlPostImportCommands : "");
-            postCommandsField.setChangedListener(text -> {
+            postCommandsField = new EditBox(this.font, centerX - 150, startY + 295, 300, 20, Component.translatable("gui.boshysbteutils.config.label.kml_post_commands"));
+            postCommandsField.setValue(config.kmlPostImportCommands != null ? config.kmlPostImportCommands : "");
+            postCommandsField.setResponder(text -> {
                 config.kmlPostImportCommands = text;
                 saveConfig();
             });
-            this.addDrawableChild(postCommandsField);
+            this.addRenderableWidget(postCommandsField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.altitude.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.altitude.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 330, 300, 20).build());
+            ).bounds(centerX - 150, startY + 330, 300, 20).build());
 
             String automaticText = "[ " + (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.AUTOMATIC ? "X" : " ") + " ] " +
-                    Text.translatable("gui.boshysbteutils.config.kml.altitude.automatic").getString();
+                    Component.translatable("gui.boshysbteutils.config.kml.altitude.automatic").getString();
             String kmlAltitudesText = "[ " + (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.KML_ALTITUDES ? "X" : " ") + " ] " +
-                    Text.translatable("gui.boshysbteutils.config.kml.altitude.kml").getString();
+                    Component.translatable("gui.boshysbteutils.config.kml.altitude.kml").getString();
             String lockedText = "[ " + (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.LOCKED ? "X" : " ") + " ] " +
-                    Text.translatable("gui.boshysbteutils.config.kml.altitude.locked").getString();
+                    Component.translatable("gui.boshysbteutils.config.kml.altitude.locked").getString();
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(automaticText),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(automaticText),
                     button -> {
                         config.kmlAltitudeMode = BoshysBTEUtilsConfig.AltitudeMode.AUTOMATIC;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 355, 145, 20).build());
+            ).bounds(centerX - 150, startY + 380, 145, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(kmlAltitudesText),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(kmlAltitudesText),
                     button -> {
                         config.kmlAltitudeMode = BoshysBTEUtilsConfig.AltitudeMode.KML_ALTITUDES;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX + 5, startY + 355, 145, 20).build());
+            ).bounds(centerX + 5, startY + 380, 145, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal(lockedText),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal(lockedText),
                     button -> {
                         config.kmlAltitudeMode = BoshysBTEUtilsConfig.AltitudeMode.LOCKED;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, startY + 380, 145, 20).build());
+            ).bounds(centerX - 150, startY + 360, 145, 20).build());
 
             String modeDescription = switch(config.kmlAltitudeMode) {
-                case AUTOMATIC -> Text.translatable("gui.boshysbteutils.config.kml.altitude.desc.automatic").getString();
-                case KML_ALTITUDES -> Text.translatable("gui.boshysbteutils.config.kml.altitude.desc.kml").getString();
-                case LOCKED -> Text.translatable("gui.boshysbteutils.config.kml.altitude.desc.locked").getString();
+                case AUTOMATIC -> Component.translatable("gui.boshysbteutils.config.kml.altitude.desc.automatic").getString();
+                case KML_ALTITUDES -> Component.translatable("gui.boshysbteutils.config.kml.altitude.desc.kml").getString();
+                case LOCKED -> Component.translatable("gui.boshysbteutils.config.kml.altitude.desc.locked").getString();
             };
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal("§7" + modeDescription),
+            this.addRenderableWidget(Button.builder(
+                    Component.literal("§7" + modeDescription),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 405, 300, 15).build());
+            ).bounds(centerX - 150, startY + 405, 300, 15).build());
 
             if (config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.LOCKED) {
-                this.addDrawableChild(ButtonWidget.builder(
-                        Text.translatable("gui.boshysbteutils.config.label.locked_altitude"),
+                this.addRenderableWidget(Button.builder(
+                        Component.translatable("gui.boshysbteutils.config.label.locked_altitude"),
                         button -> {}
-                ).dimensions(centerX - 150, startY + 425, 140, 20).build());
+                ).bounds(centerX - 150, startY + 425, 140, 20).build());
 
-                lockedAltitudeField = new TextFieldWidget(this.textRenderer, centerX + 10, startY + 425, 140, 20, Text.translatable("gui.boshysbteutils.config.label.locked_altitude"));
-                lockedAltitudeField.setText(String.valueOf(config.kmlLockedAltitudeValue));
-                lockedAltitudeField.setChangedListener(text -> {
+                lockedAltitudeField = new EditBox(this.font, centerX + 10, startY + 425, 140, 20, Component.translatable("gui.boshysbteutils.config.label.locked_altitude"));
+                lockedAltitudeField.setValue(String.valueOf(config.kmlLockedAltitudeValue));
+                lockedAltitudeField.setResponder(text -> {
                     try {
                         double val = Double.parseDouble(text);
                         config.kmlLockedAltitudeValue = val;
@@ -1144,23 +1207,23 @@ public class ModMenuIntegration implements ModMenuApi {
                     } catch (NumberFormatException e) {
                     }
                 });
-                this.addDrawableChild(lockedAltitudeField);
+                this.addRenderableWidget(lockedAltitudeField);
             }
 
             int offsetY = config.kmlAltitudeMode == BoshysBTEUtilsConfig.AltitudeMode.LOCKED ? 455 : 425;
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.altitude_offset").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.altitude_offset").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY + offsetY, 300, 20).build());
+            ).bounds(centerX - 150, startY + offsetY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.altitude_offset.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.altitude_offset.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + offsetY + 20, 300, 15).build());
+            ).bounds(centerX - 150, startY + offsetY + 20, 300, 15).build());
 
-            altitudeOffsetField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + offsetY + 40, 300, 20, Text.translatable("gui.boshysbteutils.config.label.altitude_offset"));
-            altitudeOffsetField.setText(String.valueOf(config.kmlAltitudeOffset));
-            altitudeOffsetField.setChangedListener(text -> {
+            altitudeOffsetField = new EditBox(this.font, centerX - 150, startY + offsetY + 40, 300, 20, Component.translatable("gui.boshysbteutils.config.label.altitude_offset"));
+            altitudeOffsetField.setValue(String.valueOf(config.kmlAltitudeOffset));
+            altitudeOffsetField.setResponder(text -> {
                 try {
                     double val = Double.parseDouble(text);
                     config.kmlAltitudeOffset = val;
@@ -1168,139 +1231,139 @@ public class ModMenuIntegration implements ModMenuApi {
                 } catch (NumberFormatException e) {
                 }
             });
-            this.addDrawableChild(altitudeOffsetField);
+            this.addRenderableWidget(altitudeOffsetField);
 
             int worldEditY = startY + offsetY + 75;
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.worldedit.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.worldedit.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, worldEditY, 300, 20).build());
+            ).bounds(centerX - 150, worldEditY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.option.enable_worldedit_lines",
-                            config.enableWorldEditLines ? Text.translatable("gui.boshysbteutils.config.button.on") : Text.translatable("gui.boshysbteutils.config.button.off")),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.option.enable_worldedit_lines",
+                            config.enableWorldEditLines ? Component.translatable("gui.boshysbteutils.config.button.on") : Component.translatable("gui.boshysbteutils.config.button.off")),
                     button -> {
                         config.enableWorldEditLines = !config.enableWorldEditLines;
                         saveConfig();
                         rebuildButtons();
                     }
-            ).dimensions(centerX - 150, worldEditY + 25, 300, 20).build());
+            ).bounds(centerX - 150, worldEditY + 25, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.worldedit.warning"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.worldedit.warning"),
                     button -> {}
-            ).dimensions(centerX - 150, worldEditY + 50, 300, 15).build());
+            ).bounds(centerX - 150, worldEditY + 50, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.label.worldedit_block"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.label.worldedit_block"),
                     button -> {}
-            ).dimensions(centerX - 150, worldEditY + 75, 140, 20).build());
+            ).bounds(centerX - 150, worldEditY + 75, 140, 20).build());
 
-            worldEditBlockField = new TextFieldWidget(this.textRenderer, centerX + 10, worldEditY + 75, 140, 20, Text.translatable("gui.boshysbteutils.config.label.worldedit_block"));
-            worldEditBlockField.setText(config.worldEditLineBlock);
-            worldEditBlockField.setChangedListener(text -> {
+            worldEditBlockField = new EditBox(this.font, centerX + 10, worldEditY + 75, 140, 20, Component.translatable("gui.boshysbteutils.config.label.worldedit_block"));
+            worldEditBlockField.setValue(config.worldEditLineBlock);
+            worldEditBlockField.setResponder(text -> {
                 if (text != null && !text.trim().isEmpty()) {
                     config.worldEditLineBlock = text.trim().replaceAll("\s+", "_");
                     saveConfig();
                 }
             });
-            this.addDrawableChild(worldEditBlockField);
+            this.addRenderableWidget(worldEditBlockField);
 
             int cmdY = worldEditY + 110;
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.command.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.command.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, cmdY, 300, 20).build());
+            ).bounds(centerX - 150, cmdY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.commands.importkml"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.commands.importkml"),
                     button -> {}
-            ).dimensions(centerX - 150, cmdY + 25, 300, 15).build());
+            ).bounds(centerX - 150, cmdY + 25, 300, 15).build());
 
             int tutorialY = cmdY + 55;
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.help.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.help.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, tutorialY, 300, 20).build());
+            ).bounds(centerX - 150, tutorialY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.help.step1"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.help.step1"),
                     button -> {}
-            ).dimensions(centerX - 150, tutorialY + 25, 300, 15).build());
+            ).bounds(centerX - 150, tutorialY + 25, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.help.step2"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.help.step2"),
                     button -> {}
-            ).dimensions(centerX - 150, tutorialY + 43, 300, 15).build());
+            ).bounds(centerX - 150, tutorialY + 43, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.help.step3"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.help.step3"),
                     button -> {}
-            ).dimensions(centerX - 150, tutorialY + 61, 300, 15).build());
+            ).bounds(centerX - 150, tutorialY + 61, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.help.step4"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.help.step4"),
                     button -> {}
-            ).dimensions(centerX - 150, tutorialY + 79, 300, 15).build());
+            ).bounds(centerX - 150, tutorialY + 79, 300, 15).build());
 
             int formatsY = tutorialY + 109;
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.formats.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.formats.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, formatsY, 300, 20).build());
+            ).bounds(centerX - 150, formatsY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.formats.regular"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.formats.regular"),
                     button -> {}
-            ).dimensions(centerX - 150, formatsY + 25, 300, 15).build());
+            ).bounds(centerX - 150, formatsY + 25, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.formats.3d"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.formats.3d"),
                     button -> {}
-            ).dimensions(centerX - 150, formatsY + 43, 300, 15).build());
+            ).bounds(centerX - 150, formatsY + 43, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.formats.multiple"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.formats.multiple"),
                     button -> {}
-            ).dimensions(centerX - 150, formatsY + 61, 300, 15).build());
+            ).bounds(centerX - 150, formatsY + 61, 300, 15).build());
 
             int howY = formatsY + 91;
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.how.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.how.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, howY, 300, 20).build());
+            ).bounds(centerX - 150, howY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.how.coordinates"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.how.coordinates"),
                     button -> {}
-            ).dimensions(centerX - 150, howY + 25, 300, 15).build());
+            ).bounds(centerX - 150, howY + 25, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.how.tpll"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.how.tpll"),
                     button -> {}
-            ).dimensions(centerX - 150, howY + 43, 300, 15).build());
+            ).bounds(centerX - 150, howY + 43, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.how.markers"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.how.markers"),
                     button -> {}
-            ).dimensions(centerX - 150, howY + 61, 300, 15).build());
+            ).bounds(centerX - 150, howY + 61, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.how.connect"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.how.connect"),
                     button -> {}
-            ).dimensions(centerX - 150, howY + 79, 300, 15).build());
+            ).bounds(centerX - 150, howY + 79, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.kml.how.post_commands"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.kml.how.post_commands"),
                     button -> {}
-            ).dimensions(centerX - 150, howY + 97, 300, 15).build());
+            ).bounds(centerX - 150, howY + 97, 300, 15).build());
 
             int backY = howY + 130;
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.back"),
-                    button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, backY, 200, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.back"),
+                    button -> this.minecraft.setScreenAndShow(parent)
+            ).bounds(centerX - 100, backY, 200, 20).build());
         }
 
         @Override
@@ -1308,8 +1371,9 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
+                int minVisible = 80;
                 int contentHeight = 1100;
-                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                int maxScroll = Math.max(0, contentHeight - (this.height - minVisible));
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
                 return true;
@@ -1317,10 +1381,9 @@ public class ModMenuIntegration implements ModMenuApi {
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
 
-        @Override
         public void close() {
             saveConfig();
-            this.client.setScreen(parent);
+            this.minecraft.setScreenAndShow(parent);
         }
 
         private void saveConfig() {
@@ -1329,13 +1392,23 @@ public class ModMenuIntegration implements ModMenuApi {
     }
 
     public static class OverlaysScreen extends Screen {
+
+        public void addRenderableWidget(net.minecraft.client.gui.components.AbstractWidget widget) {
+            // 26.2 FIX: Strict bounds check - widgets must be FULLY within screen.
+            // Partial off-screen widgets crash the scissor system in 26.2.
+            if (widget.getHeight() <= 0 || widget.getWidth() <= 0) return;
+            if (widget.getY() < 0) return;
+            if (widget.getY() + widget.getHeight() > this.height) return;
+            super.addRenderableWidget(widget);
+        }
+
         private final Screen parent;
         private int scrollOffset = 0;
-        private TextFieldWidget renderDistanceField;
-        private ButtonWidget currentValueLabel;
+        private EditBox renderDistanceField;
+        private Button currentValueLabel;
 
         public OverlaysScreen(Screen parent) {
-            super(Text.translatable("gui.boshysbteutils.config.screen.overlays"));
+            super(Component.translatable("gui.boshysbteutils.config.screen.overlays"));
             this.parent = parent;
         }
 
@@ -1345,40 +1418,40 @@ public class ModMenuIntegration implements ModMenuApi {
         }
 
         private void rebuildButtons() {
-            this.clearChildren();
+            this.clearWidgets();
             int centerX = this.width / 2;
             int startY = this.height / 6 - scrollOffset;
 
             BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.overlays.title").styled(style -> style.withBold(true)),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.overlays.title").withStyle(style -> style.withBold(true)),
                     button -> {}
-            ).dimensions(centerX - 150, startY, 300, 20).build());
+            ).bounds(centerX - 150, startY, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.overlays.render_distance.label"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.overlays.render_distance.label"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 30, 300, 20).build());
+            ).bounds(centerX - 150, startY + 30, 300, 20).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.overlays.render_distance.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.overlays.render_distance.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 55, 300, 15).build());
+            ).bounds(centerX - 150, startY + 55, 300, 15).build());
 
             // Current value label — updated dynamically without rebuilding the whole UI
-            currentValueLabel = ButtonWidget.builder(
+            currentValueLabel = Button.builder(
                     getRenderDistanceText(config),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 75, 300, 20).build();
-            this.addDrawableChild(currentValueLabel);
+            ).bounds(centerX - 150, startY + 75, 300, 20).build();
+            this.addRenderableWidget(currentValueLabel);
 
-            renderDistanceField = new TextFieldWidget(this.textRenderer, centerX - 150, startY + 100, 300, 20,
-                    Text.translatable("gui.boshysbteutils.config.overlays.render_distance.label"));
-            renderDistanceField.setText(String.valueOf(config.overlayRenderDistance));
+            renderDistanceField = new EditBox(this.font, centerX - 150, startY + 100, 300, 20,
+                    Component.translatable("gui.boshysbteutils.config.overlays.render_distance.label"));
+            renderDistanceField.setValue(String.valueOf(config.overlayRenderDistance));
             renderDistanceField.setMaxLength(3);
-            renderDistanceField.setEditableColor(0xFFFFFF);
-            renderDistanceField.setChangedListener(text -> {
+            renderDistanceField.setTextColor(0xFFFFFF);
+            renderDistanceField.setResponder(text -> {
                 try {
                     if (text == null || text.isEmpty()) {
                         // Empty is fine during typing, don't update config yet
@@ -1395,34 +1468,34 @@ public class ModMenuIntegration implements ModMenuApi {
                     // Invalid input (e.g. "-" while typing negative), ignore
                 }
             });
-            this.addDrawableChild(renderDistanceField);
+            this.addRenderableWidget(renderDistanceField);
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.overlays.subdivision.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.overlays.subdivision.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 135, 300, 15).build());
+            ).bounds(centerX - 150, startY + 135, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.overlays.culling.desc"),
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.overlays.culling.desc"),
                     button -> {}
-            ).dimensions(centerX - 150, startY + 155, 300, 15).build());
+            ).bounds(centerX - 150, startY + 155, 300, 15).build());
 
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("gui.boshysbteutils.config.button.back"),
-                    button -> this.client.setScreen(parent)
-            ).dimensions(centerX - 100, startY + 200, 200, 20).build());
+            this.addRenderableWidget(Button.builder(
+                    Component.translatable("gui.boshysbteutils.config.button.back"),
+                    button -> this.minecraft.setScreenAndShow(parent)
+            ).bounds(centerX - 100, startY + 200, 200, 20).build());
         }
 
-        private Text getRenderDistanceText(BoshysBTEUtilsConfig config) {
+        private Component getRenderDistanceText(BoshysBTEUtilsConfig config) {
             if (config.overlayRenderDistance < 0) {
-                return Text.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
-                        Text.translatable("gui.boshysbteutils.config.overlays.render_distance.simulation"));
+                return Component.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
+                        Component.translatable("gui.boshysbteutils.config.overlays.render_distance.simulation"));
             } else if (config.overlayRenderDistance == 0) {
-                return Text.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
-                        Text.translatable("gui.boshysbteutils.config.overlays.render_distance.unlimited"));
+                return Component.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
+                        Component.translatable("gui.boshysbteutils.config.overlays.render_distance.unlimited"));
             } else {
-                return Text.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
-                        Text.literal(config.overlayRenderDistance + " chunks"));
+                return Component.translatable("gui.boshysbteutils.config.overlays.render_distance.current",
+                        Component.literal(config.overlayRenderDistance + " chunks"));
             }
         }
 
@@ -1431,8 +1504,9 @@ public class ModMenuIntegration implements ModMenuApi {
             if (verticalAmount != 0) {
                 scrollOffset -= (int)(verticalAmount * 20);
                 if (scrollOffset < 0) scrollOffset = 0;
+                int minVisible = 80;
                 int contentHeight = 250;
-                int maxScroll = Math.max(0, contentHeight - this.height + 100);
+                int maxScroll = Math.max(0, contentHeight - (this.height - minVisible));
                 if (scrollOffset > maxScroll) scrollOffset = maxScroll;
                 rebuildButtons();
                 return true;
@@ -1440,10 +1514,9 @@ public class ModMenuIntegration implements ModMenuApi {
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
 
-        @Override
         public void close() {
             saveConfig();
-            this.client.setScreen(parent);
+            this.minecraft.setScreenAndShow(parent);
         }
 
         private void saveConfig() {

@@ -5,12 +5,13 @@ import com.boshys.bteutils.data.MarkerData;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.text.ClickEvent;
-import net.minecraft.text.HoverEvent;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.*;
 import java.nio.file.Path;
@@ -39,6 +40,8 @@ public class MarkerStorage {
 
     private int pendingClearCount = 0;
     private boolean pendingClearAll = false;
+    private long pendingClearTimestamp = 0;
+    private static final long CLEAR_EXPIRATION_MS = 30000;
 
     // Helper class to track which file and index a marker came from
     public static class FileMarkerId {
@@ -97,6 +100,7 @@ public class MarkerStorage {
     public void setPendingClear(int count, boolean all) {
         this.pendingClearCount = count;
         this.pendingClearAll = all;
+        this.pendingClearTimestamp = System.currentTimeMillis();
     }
 
     public int clearCacheMarkersOnly() {
@@ -125,6 +129,11 @@ public class MarkerStorage {
 
     public int confirmClear() {
         if (pendingClearCount == 0) return -1;
+        if (System.currentTimeMillis() - pendingClearTimestamp > CLEAR_EXPIRATION_MS) {
+            pendingClearCount = 0;
+            pendingClearAll = false;
+            return -1;
+        }
 
         if (pendingClearAll) {
             int count = BoshysBTEUtils.markers.size();
@@ -142,10 +151,13 @@ public class MarkerStorage {
             markerToFileId.clear();
             pendingClearCount = 0;
             pendingClearAll = false;
+            pendingClearTimestamp = 0;
             return count;
         } else {
             int count = clearCacheMarkersOnly();
             pendingClearCount = 0;
+            pendingClearAll = false;
+            pendingClearTimestamp = 0;
             return count;
         }
     }
@@ -162,8 +174,8 @@ public class MarkerStorage {
         return pendingClearCount;
     }
 
-    // Helper method to create position key for matching (since Vec3d doesn't implement equals)
-    private String posKey(Vec3d pos) {
+    // Helper method to create position key for matching (since Vec3 doesn't implement equals)
+    private String posKey(Vec3 pos) {
         return String.format("%.6f,%.6f,%.6f", pos.x, pos.y, pos.z);
     }
 
@@ -172,9 +184,10 @@ public class MarkerStorage {
     }
 
     // FIXED: Save markers with proper file handling to prevent EOFException
+    // FIXED: Now preserves customised marker and circle settings
     public int saveMarkersToFile(FabricClientCommandSource source, String filename, double radius) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
-            source.sendFeedback(Text.literal("§cMarkers disabled in config!"));
+            source.sendError(Component.literal("§cMarkers disabled in config!"));
             return 0;
         }
 
@@ -188,18 +201,18 @@ public class MarkerStorage {
         }
 
         if (!hasCacheMarkers) {
-            source.sendFeedback(Text.literal("§cNo markers in cache to save!"));
+            source.sendError(Component.literal("§cNo markers in cache to save!"));
             return 0;
         }
 
         filename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
         if (filename.isEmpty()) {
-            source.sendFeedback(Text.literal("§cInvalid filename!"));
+            source.sendError(Component.literal("§cInvalid filename!"));
             return 0;
         }
 
-        ClientPlayerEntity player = source.getPlayer();
-        Vec3d playerPos = new Vec3d(player.getX(), player.getY(), player.getZ());
+        LocalPlayer player = source.getPlayer();
+        Vec3 playerPos = new Vec3(player.getX(), player.getY(), player.getZ());
         List<MarkerData.SavedMarkerData> markersToSave = new ArrayList<>();
         List<MarkerData.SavedConnectionData> connectionsToSave = new ArrayList<>();
         List<MarkerData.TeleportMarker> savedCacheMarkers = new ArrayList<>();
@@ -242,10 +255,13 @@ public class MarkerStorage {
             }
 
             if (radius < 0 || marker.position.distanceTo(playerPos) <= radius) {
-                markersToSave.add(new MarkerData.SavedMarkerData(
+                // FIXED: Save all customised marker settings including circle properties
+                MarkerData.SavedMarkerData savedData = new MarkerData.SavedMarkerData(
                         marker.position.x, marker.position.y, marker.position.z,
-                        marker.colour, marker.scale, marker.opacity
-                ));
+                        marker.colour, marker.scale, marker.opacity,
+                        marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
+                );
+                markersToSave.add(savedData);
                 markerIndexMap.put(marker, index);
                 savedCacheMarkers.add(marker);
                 index++;
@@ -253,7 +269,7 @@ public class MarkerStorage {
         }
 
         if (markersToSave.isEmpty()) {
-            source.sendFeedback(Text.literal("§cNo new unsaved markers within specified radius!"));
+            source.sendError(Component.literal("§cNo new unsaved markers within specified radius!"));
             return 0;
         }
 
@@ -261,7 +277,10 @@ public class MarkerStorage {
             Integer idx1 = markerIndexMap.get(conn.marker1);
             Integer idx2 = markerIndexMap.get(conn.marker2);
             if (idx1 != null && idx2 != null) {
-                connectionsToSave.add(new MarkerData.SavedConnectionData(idx1, idx2));
+                // FIXED: Save connection with customised line properties
+                connectionsToSave.add(new MarkerData.SavedConnectionData(
+                        idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
+                ));
             }
         }
 
@@ -274,7 +293,7 @@ public class MarkerStorage {
             GSON.toJson(fileData, writer);
             writer.flush(); // Explicitly flush to ensure all data is written
         } catch (IOException e) {
-            source.sendFeedback(Text.literal("§cFailed to save markers: " + e.getMessage()));
+            source.sendError(Component.literal("§cFailed to save markers: " + e.getMessage()));
             return 0;
         }
 
@@ -296,12 +315,12 @@ public class MarkerStorage {
         // Load the file we just saved
         boolean loadSuccess = loadMarkerFileInternal(filename, true);
 
-        Text message = Text.literal("§aSaved " + markersToSave.size() + " markers to '")
-                .append(Text.literal(filename).styled(style -> style.withBold(true)))
-                .append(Text.literal("' §aand loaded it!"))
-                .styled(style -> style
+        Component message = Component.literal("§aSaved " + markersToSave.size() + " markers to '")
+                .append(Component.literal(filename).withStyle(Style.EMPTY.withBold(true)))
+                .append(Component.literal("' §aand loaded it!"))
+                .withStyle(style -> style
                         .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
-                        .withHoverEvent(new HoverEvent.ShowText(Text.literal("§eClick to open folder")))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
                 );
 
         source.sendFeedback(message);
@@ -309,19 +328,20 @@ public class MarkerStorage {
     }
 
     // CRITICAL FIX: Completely rewritten updateMarkerFile to properly handle moved markers
+    // FIXED: Now preserves and updates all customised marker and connection settings
     public int updateMarkerFile(FabricClientCommandSource source, String filename, double radius) {
         filename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
 
         // Check if file is loaded first - if not, we can't update it
         if (!loadedFiles.containsKey(filename)) {
-            source.sendFeedback(Text.literal("§cFile '" + filename + "' is not loaded! You must load it first with /boshys-bt-utils load " + filename));
+            source.sendError(Component.literal("§cFile '" + filename + "' is not loaded! You must load it first with /boshys-bt-utils load " + filename));
             return 0;
         }
 
         File file = getMarkersSavePath().resolve(filename + ".json").toFile();
 
         if (!file.exists()) {
-            source.sendFeedback(Text.literal("§cFile '" + filename + "' not found!"));
+            source.sendError(Component.literal("§cFile '" + filename + "' not found!"));
             return 0;
         }
 
@@ -337,8 +357,8 @@ public class MarkerStorage {
                 existingData.connections = new ArrayList<>();
             }
 
-            ClientPlayerEntity player = source.getPlayer();
-            Vec3d playerPos = new Vec3d(player.getX(), player.getY(), player.getZ());
+            LocalPlayer player = source.getPlayer();
+            Vec3 playerPos = new Vec3(player.getX(), player.getY(), player.getZ());
 
             // CRITICAL FIX: Build a map from file entry index to current marker using persistent ID tracking
             Map<Integer, MarkerData.TeleportMarker> indexToMarker = new HashMap<>();
@@ -363,7 +383,7 @@ public class MarkerStorage {
                 for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                     String origin = BoshysBTEUtils.markerOrigins.get(marker);
                     if (filename.equals(origin)) {
-                        Vec3d originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
+                        Vec3 originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
                         if (originalPos != null) {
                             // Find which index this corresponds to in the file
                             for (int i = 0; i < existingData.markers.size(); i++) {
@@ -403,17 +423,24 @@ public class MarkerStorage {
                     continue;
                 }
 
-                // Create new saved data with CURRENT position (where marker is now)
+                // Create new saved data with CURRENT position and CURRENT customised settings
+                // FIXED: Preserve all customised settings (colour, scale, opacity, circle properties)
                 MarkerData.SavedMarkerData oldData = existingData.markers.get(i);
                 MarkerData.SavedMarkerData newData = new MarkerData.SavedMarkerData(
                         currentMarker.position.x, currentMarker.position.y, currentMarker.position.z,
-                        currentMarker.colour, currentMarker.scale, currentMarker.opacity
+                        currentMarker.colour, currentMarker.scale, currentMarker.opacity,
+                        currentMarker.circleRadius, currentMarker.circleColour, currentMarker.circleOpacity, currentMarker.circleThickness, currentMarker.circleSegmentPercent
                 );
 
                 // Check if marker was modified (moved or design changed)
                 boolean wasModified = currentMarker.colour != oldData.colour ||
                         currentMarker.scale != oldData.scale ||
                         currentMarker.opacity != oldData.opacity ||
+                        currentMarker.circleRadius != oldData.circleRadius ||
+                        currentMarker.circleColour != oldData.circleColour ||
+                        currentMarker.circleOpacity != oldData.circleOpacity ||
+                        currentMarker.circleThickness != oldData.circleThickness ||
+                        currentMarker.circleSegmentPercent != oldData.circleSegmentPercent ||
                         Math.abs(currentMarker.position.x - oldData.x) > 0.0001 ||
                         Math.abs(currentMarker.position.y - oldData.y) > 0.0001 ||
                         Math.abs(currentMarker.position.z - oldData.z) > 0.0001;
@@ -432,7 +459,7 @@ public class MarkerStorage {
                 fileMarkerIndexMap.computeIfAbsent(filename, k -> new HashMap<>()).put(newIndex - 1, currentMarker);
                 markerToFileId.put(currentMarker, new FileMarkerId(filename, newIndex - 1));
                 // Also update original position tracking
-                BoshysBTEUtils.markerOriginalPositions.put(currentMarker, new Vec3d(currentMarker.position.x, currentMarker.position.y, currentMarker.position.z));
+                BoshysBTEUtils.markerOriginalPositions.put(currentMarker, new Vec3(currentMarker.position.x, currentMarker.position.y, currentMarker.position.z));
             }
 
             // Add new cache markers to the file (markers without file origin or autosave markers)
@@ -473,16 +500,18 @@ public class MarkerStorage {
                     continue;
                 }
 
-                // Add new marker to file
+                // Add new marker to file with all customised settings
+                // FIXED: Preserve all customised settings including circle properties
                 MarkerData.SavedMarkerData newData = new MarkerData.SavedMarkerData(
                         marker.position.x, marker.position.y, marker.position.z,
-                        marker.colour, marker.scale, marker.opacity
+                        marker.colour, marker.scale, marker.opacity,
+                        marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
                 );
                 newMarkersList.add(newData);
 
                 // CRITICAL FIX: Assign this marker to the file and track its position
                 BoshysBTEUtils.markerOrigins.put(marker, filename);
-                BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3d(marker.position.x, marker.position.y, marker.position.z));
+                BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(marker.position.x, marker.position.y, marker.position.z));
                 newlyAddedMarkers.add(marker);
 
                 // Update persistent ID mapping
@@ -508,7 +537,7 @@ public class MarkerStorage {
                 }
             }
 
-            // Remap connections - preserve existing connections that still exist
+            // Remap connections - preserve existing connections that still exist with their customised settings
             Set<String> addedConnections = new HashSet<>();
 
             for (MarkerData.SavedConnectionData oldConn : existingData.connections) {
@@ -518,7 +547,10 @@ public class MarkerStorage {
                 if (newFrom != null && newTo != null && !newFrom.equals(newTo)) {
                     String connKey = newFrom < newTo ? newFrom + ":" + newTo : newTo + ":" + newFrom;
                     if (!addedConnections.contains(connKey)) {
-                        newConnectionsList.add(new MarkerData.SavedConnectionData(newFrom, newTo));
+                        // FIXED: Preserve connection line customisations when remapping
+                        newConnectionsList.add(new MarkerData.SavedConnectionData(
+                                newFrom, newTo, oldConn.lineColour, oldConn.lineOpacity, oldConn.lineThickness
+                        ));
                         addedConnections.add(connKey);
                     }
                 }
@@ -532,7 +564,10 @@ public class MarkerStorage {
                 if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
                     String connKey = idx1 < idx2 ? idx1 + ":" + idx2 : idx2 + ":" + idx1;
                     if (!addedConnections.contains(connKey)) {
-                        newConnectionsList.add(new MarkerData.SavedConnectionData(idx1, idx2));
+                        // FIXED: Save connection with customised line properties
+                        newConnectionsList.add(new MarkerData.SavedConnectionData(
+                                idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
+                        ));
                         addedConnections.add(connKey);
                     }
                 }
@@ -561,16 +596,16 @@ public class MarkerStorage {
             if (addedCount > 0) msg.append(" Added: ").append(addedCount);
             msg.append(". Total: ").append(newMarkersList.size());
 
-            Text message = Text.literal(msg.toString())
-                    .styled(style -> style
+            Component message = Component.literal(msg.toString())
+                    .withStyle(style -> style
                             .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
-                            .withHoverEvent(new HoverEvent.ShowText(Text.literal("§eClick to open folder")))
+                            .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
                     );
 
             source.sendFeedback(message);
             return 1;
         } catch (IOException e) {
-            source.sendFeedback(Text.literal("§cFailed to update file: " + e.getMessage()));
+            source.sendError(Component.literal("§cFailed to update file: " + e.getMessage()));
             return 0;
         }
     }
@@ -580,10 +615,11 @@ public class MarkerStorage {
     }
 
     // FIXED: Improved loadMarkerFileInternal with better error handling and persistent ID tracking
+    // FIXED: Now loads all customised marker and connection settings from file
     public boolean loadMarkerFileInternal(String filename, boolean silent) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
             if (!silent) {
-                MinecraftClient.getInstance().player.sendMessage(Text.literal("§cMarkers disabled in config!"), false);
+                Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cMarkers disabled in config!"));
             }
             return false;
         }
@@ -593,7 +629,7 @@ public class MarkerStorage {
 
         if (!file.exists()) {
             if (!silent) {
-                MinecraftClient.getInstance().player.sendMessage(Text.literal("§cFile '" + filename + "' not found!"), false);
+                Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cFile '" + filename + "' not found!"));
             }
             return false;
         }
@@ -601,7 +637,7 @@ public class MarkerStorage {
         // Check if file is empty
         if (file.length() == 0) {
             if (!silent) {
-                MinecraftClient.getInstance().player.sendMessage(Text.literal("§cFile '" + filename + "' is empty!"), false);
+                Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cFile '" + filename + "' is empty!"));
             }
             return false;
         }
@@ -610,7 +646,7 @@ public class MarkerStorage {
             MarkerData.SavedMarkerFile fileData = GSON.fromJson(reader, MarkerData.SavedMarkerFile.class);
             if (fileData == null || fileData.markers == null) {
                 if (!silent) {
-                    MinecraftClient.getInstance().player.sendMessage(Text.literal("§cInvalid file format!"), false);
+                    Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cInvalid file format!"));
                 }
                 return false;
             }
@@ -627,10 +663,18 @@ public class MarkerStorage {
 
             for (int i = 0; i < fileData.markers.size(); i++) {
                 MarkerData.SavedMarkerData data = fileData.markers.get(i);
+                // FIXED: Load all customised marker settings from file
                 MarkerData.TeleportMarker marker = new MarkerData.TeleportMarker(
-                        new Vec3d(data.x, data.y, data.z),
+                        new Vec3(data.x, data.y, data.z),
                         data.colour, data.scale, data.opacity
                 );
+                // FIXED: Load circle customisations from file (backward compatible - defaults if not present)
+                marker.circleRadius = data.circleRadius;
+                marker.circleColour = data.circleColour;
+                marker.circleOpacity = data.circleOpacity;
+                marker.circleThickness = data.circleThickness;
+                marker.circleSegmentPercent = data.circleSegmentPercent;
+
                 BoshysBTEUtils.markers.add(marker);
                 loadedMarkers.add(marker);
                 loadedCount++;
@@ -638,7 +682,7 @@ public class MarkerStorage {
                 if (!isAutosave) {
                     BoshysBTEUtils.markerOrigins.put(marker, filename);
                     // CRITICAL: Store the original position from file
-                    BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3d(data.x, data.y, data.z));
+                    BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(data.x, data.y, data.z));
                     // CRITICAL FIX: Set up persistent ID tracking
                     indexMap.put(i, marker);
                     markerToFileId.put(marker, new FileMarkerId(filename, i));
@@ -655,7 +699,14 @@ public class MarkerStorage {
                 for (MarkerData.SavedConnectionData connData : fileData.connections) {
                     if (connData.fromIndex >= 0 && connData.fromIndex < loadedMarkers.size() &&
                             connData.toIndex >= 0 && connData.toIndex < loadedMarkers.size()) {
-                        MarkerData.connectMarkers(loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex));
+                        // FIXED: Load connection with customised line properties from file
+                        MarkerData.MarkerConnection conn = MarkerData.connectMarkers(
+                                loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex)
+                        );
+                        // FIXED: Apply saved line customisations (backward compatible - defaults if not present)
+                        conn.lineColour = connData.lineColour;
+                        conn.lineOpacity = connData.lineOpacity;
+                        conn.lineThickness = connData.lineThickness;
                         loadedConnections++;
                     }
                 }
@@ -667,23 +718,23 @@ public class MarkerStorage {
             }
 
             if (!silent) {
-                Text message = Text.literal("§aLoaded " + loadedCount + " markers")
-                        .append(loadedConnections > 0 ? Text.literal(" with " + loadedConnections + " connections") : Text.literal(""))
-                        .append(Text.literal(" from '"))
-                        .append(Text.literal(filename).styled(style -> style.withBold(true)))
-                        .append(Text.literal("'!"))
-                        .append(isAutosave ? Text.literal(" (as cache markers)") : Text.literal(""))
-                        .styled(style -> style
+                Component message = Component.literal("§aLoaded " + loadedCount + " markers")
+                        .append(loadedConnections > 0 ? Component.literal(" with " + loadedConnections + " connections") : Component.literal(""))
+                        .append(Component.literal(" from '"))
+                        .append(Component.literal(filename).withStyle(Style.EMPTY.withBold(true)))
+                        .append(Component.literal("'!"))
+                        .append(isAutosave ? Component.literal(" (as cache markers)") : Component.literal(""))
+                        .withStyle(style -> style
                                 .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
-                                .withHoverEvent(new HoverEvent.ShowText(Text.literal("§eClick to open folder")))
+                                .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
                         );
 
-                MinecraftClient.getInstance().player.sendMessage(message, false);
+                Minecraft.getInstance().player.sendSystemMessage(message);
             }
             return true;
         } catch (Exception e) {
             if (!silent) {
-                MinecraftClient.getInstance().player.sendMessage(Text.literal("§cFailed to load file '" + filename + "': " + e.getMessage()), false);
+                Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cFailed to load file '" + filename + "': " + e.getMessage()));
             }
             return false;
         }
@@ -693,7 +744,7 @@ public class MarkerStorage {
         final String finalFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
 
         if (!loadedFiles.containsKey(finalFilename)) {
-            source.sendFeedback(Text.literal("§cFile '" + finalFilename + "' is not currently loaded!"));
+            source.sendError(Component.literal("§cFile '" + finalFilename + "' is not currently loaded!"));
             return 0;
         }
 
@@ -710,7 +761,7 @@ public class MarkerStorage {
                     String markerOrigin = BoshysBTEUtils.markerOrigins.get(marker);
                     if (otherFilename.equals(markerOrigin)) {
                         // CRITICAL FIX: Use position key for comparison
-                        Vec3d markerOriginalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
+                        Vec3 markerOriginalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
                         if (markerOriginalPos != null) {
                             String markerPosKey = posKey(markerOriginalPos);
                             String dataPosKey = posKey(data.x, data.y, data.z);
@@ -737,13 +788,13 @@ public class MarkerStorage {
 
                         MarkerData.SavedMarkerFile otherFile = entry.getValue();
                         for (MarkerData.SavedMarkerData data : otherFile.markers) {
-                            Vec3d markerOriginalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
+                            Vec3 markerOriginalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
                             if (markerOriginalPos != null) {
                                 String markerPosKey = posKey(markerOriginalPos);
                                 String dataPosKey = posKey(data.x, data.y, data.z);
                                 if (markerPosKey.equals(dataPosKey)) {
                                     BoshysBTEUtils.markerOrigins.put(marker, otherFilename);
-                                    BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3d(data.x, data.y, data.z));
+                                    BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(data.x, data.y, data.z));
                                     protectedCount[0]++;
                                     return false;
                                 }
@@ -776,7 +827,7 @@ public class MarkerStorage {
         if (protectedCount[0] > 0) {
             msg.append(" (").append(protectedCount[0]).append(" markers kept from other files)");
         }
-        source.sendFeedback(Text.literal(msg.toString()));
+        source.sendFeedback(Component.literal(msg.toString()));
         return 1;
     }
 
@@ -791,14 +842,14 @@ public class MarkerStorage {
         baseName = baseName.replaceAll("[^a-zA-Z0-9_-]", "");
 
         if (baseName.isEmpty()) {
-            source.sendFeedback(Text.literal("§cInvalid filename!"));
+            source.sendError(Component.literal("§cInvalid filename!"));
             return 0;
         }
 
         File file = getMarkersSavePath().resolve(baseName + ".json").toFile();
 
         if (!file.exists()) {
-            source.sendFeedback(Text.literal("§cFile '" + cleanName + "' not found!"));
+            source.sendError(Component.literal("§cFile '" + cleanName + "' not found!"));
             return 0;
         }
 
@@ -808,29 +859,30 @@ public class MarkerStorage {
 
         if (file.delete()) {
             hiddenFiles.remove(baseName);
-            source.sendFeedback(Text.literal("§aDeleted file '" + cleanName + "' permanently!"));
+            source.sendFeedback(Component.literal("§aDeleted file '" + cleanName + "' permanently!"));
             return 1;
         } else {
-            source.sendFeedback(Text.literal("§cFailed to delete file!"));
+            source.sendError(Component.literal("§cFailed to delete file!"));
             return 0;
         }
     }
 
     // FIXED: mergeMarkerFiles now properly removes old markers, cleans origins, and deletes old files
+    // FIXED: Now preserves and merges all customised marker and connection settings
     public int mergeMarkerFiles(FabricClientCommandSource source, String mergedFileName, boolean includeCached, List<String> filenames) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
-            source.sendFeedback(Text.literal("§cMarkers disabled in config!"));
+            source.sendError(Component.literal("§cMarkers disabled in config!"));
             return 0;
         }
 
         if (filenames.isEmpty()) {
-            source.sendFeedback(Text.literal("§cNeed at least one file to merge!"));
+            source.sendError(Component.literal("§cNeed at least one file to merge!"));
             return 0;
         }
 
         mergedFileName = mergedFileName.replaceAll("[^a-zA-Z0-9_-]", "");
         if (mergedFileName.isEmpty()) {
-            source.sendFeedback(Text.literal("§cInvalid merged filename!"));
+            source.sendError(Component.literal("§cInvalid merged filename!"));
             return 0;
         }
 
@@ -838,7 +890,7 @@ public class MarkerStorage {
             String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
             File file = getMarkersSavePath().resolve(cleanFilename + ".json").toFile();
             if (!file.exists()) {
-                source.sendFeedback(Text.literal("§cFile '" + cleanFilename + "' not found!"));
+                source.sendError(Component.literal("§cFile '" + cleanFilename + "' not found!"));
                 return 0;
             }
         }
@@ -871,18 +923,21 @@ public class MarkerStorage {
 
                     for (int i = 0; i < fileData.markers.size(); i++) {
                         MarkerData.SavedMarkerData data = fileData.markers.get(i);
+                        // FIXED: Preserve all customised marker settings including circle properties
                         allMarkers.add(new MarkerData.SavedMarkerData(
                                 data.x, data.y, data.z,
                                 data.colour, data.scale, data.opacity,
-                                data.circleRadius
+                                data.circleRadius, data.circleColour, data.circleOpacity, data.circleThickness, data.circleSegmentPercent
                         ));
                     }
 
                     if (fileData.connections != null) {
                         for (MarkerData.SavedConnectionData conn : fileData.connections) {
+                            // FIXED: Preserve connection line customisations
                             allConnections.add(new MarkerData.SavedConnectionData(
                                     conn.fromIndex + baseIndex,
-                                    conn.toIndex + baseIndex
+                                    conn.toIndex + baseIndex,
+                                    conn.lineColour, conn.lineOpacity, conn.lineThickness
                             ));
                         }
                     }
@@ -890,7 +945,7 @@ public class MarkerStorage {
                     baseIndex += fileData.markers.size();
                 }
             } catch (IOException e) {
-                source.sendFeedback(Text.literal("§cError reading file '" + cleanFilename + "': " + e.getMessage()));
+                source.sendError(Component.literal("§cError reading file '" + cleanFilename + "': " + e.getMessage()));
                 return 0;
             }
         }
@@ -905,41 +960,59 @@ public class MarkerStorage {
                 }
             }
 
-            // Add cache markers to the merged list
+            // Add cache markers to the merged list with all customised settings
             int cacheBaseIndex = baseIndex;
             for (MarkerData.TeleportMarker marker : cacheMarkersInOrder) {
+                // FIXED: Preserve all customised marker settings including circle properties
                 allMarkers.add(new MarkerData.SavedMarkerData(
                         marker.position.x, marker.position.y, marker.position.z,
                         marker.colour, marker.scale, marker.opacity,
-                        marker.circleRadius
+                        marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
                 ));
                 cacheMarkersToRemove.add(marker);
             }
 
             // CRITICAL FIX: Preserve connections among all markers being merged (file + cache)
-            // Build a unified index map for connection remapping
-            List<MarkerData.TeleportMarker> allMarkersInOrder = new ArrayList<>();
+            // Build a unified index map for connection remapping.
+            // The indices MUST match the order markers were added to allMarkers:
+            //   0..(baseIndex-1) = file markers (in file order)
+            //   baseIndex..(baseIndex+cacheCount-1) = cache markers
+            Map<MarkerData.TeleportMarker, Integer> unifiedIndexMap = new HashMap<>();
+            int idx = 0;
 
-            // Add file markers first (in order of files)
+            // File markers in the same order they were added to allMarkers
             for (String filename : filenames) {
                 String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
-                for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
-                    String origin = BoshysBTEUtils.markerOrigins.get(marker);
-                    if (cleanFilename.equals(origin)) {
-                        allMarkersInOrder.add(marker);
+                // Use persistent file ID mapping to get markers in file index order
+                Map<Integer, MarkerData.TeleportMarker> fileIndexMap = fileMarkerIndexMap.get(cleanFilename);
+                if (fileIndexMap != null) {
+                    // Sort by index to maintain consistent order
+                    List<Integer> sortedIndices = new ArrayList<>(fileIndexMap.keySet());
+                    Collections.sort(sortedIndices);
+                    for (int fileIdx : sortedIndices) {
+                        MarkerData.TeleportMarker marker = fileIndexMap.get(fileIdx);
+                        if (marker != null && BoshysBTEUtils.markers.contains(marker)) {
+                            unifiedIndexMap.put(marker, idx++);
+                        }
+                    }
+                } else {
+                    // Fallback: iterate markers and match by origin, then original position
+                    for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+                        String origin = BoshysBTEUtils.markerOrigins.get(marker);
+                        if (cleanFilename.equals(origin) && !unifiedIndexMap.containsKey(marker)) {
+                            unifiedIndexMap.put(marker, idx++);
+                        }
                     }
                 }
             }
-            // Add cache markers
-            allMarkersInOrder.addAll(cacheMarkersInOrder);
 
-            // Build index map
-            Map<MarkerData.TeleportMarker, Integer> unifiedIndexMap = new HashMap<>();
-            for (int i = 0; i < allMarkersInOrder.size(); i++) {
-                unifiedIndexMap.put(allMarkersInOrder.get(i), i);
+            // Cache markers in the same order they were added to allMarkers
+            for (MarkerData.TeleportMarker marker : cacheMarkersInOrder) {
+                unifiedIndexMap.put(marker, idx++);
             }
 
             // CRITICAL FIX: Remap all existing connections into the unified index space
+            // FIXED: Preserve connection line customisations
             Set<String> addedConnections = new HashSet<>();
             for (MarkerData.MarkerConnection conn : BoshysBTEUtils.markerConnections) {
                 Integer idx1 = unifiedIndexMap.get(conn.marker1);
@@ -947,7 +1020,9 @@ public class MarkerStorage {
                 if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
                     String connKey = Math.min(idx1, idx2) + ":" + Math.max(idx1, idx2);
                     if (!addedConnections.contains(connKey)) {
-                        allConnections.add(new MarkerData.SavedConnectionData(idx1, idx2));
+                        allConnections.add(new MarkerData.SavedConnectionData(
+                                idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
+                        ));
                         addedConnections.add(connKey);
                     }
                 }
@@ -957,7 +1032,7 @@ public class MarkerStorage {
         }
 
         if (allMarkers.isEmpty()) {
-            source.sendFeedback(Text.literal("§cNo markers to merge!"));
+            source.sendError(Component.literal("§cNo markers to merge!"));
             return 0;
         }
 
@@ -969,7 +1044,7 @@ public class MarkerStorage {
             GSON.toJson(mergedData, writer);
             writer.flush();
         } catch (IOException e) {
-            source.sendFeedback(Text.literal("§cFailed to save merged file: " + e.getMessage()));
+            source.sendError(Component.literal("§cFailed to save merged file: " + e.getMessage()));
             return 0;
         }
 
@@ -1000,6 +1075,9 @@ public class MarkerStorage {
         if (BoshysBTEUtils.lastAddedMarker != null && !BoshysBTEUtils.markers.contains(BoshysBTEUtils.lastAddedMarker)) {
             BoshysBTEUtils.lastAddedMarker = null;
         }
+        if (BoshysBTEUtils.lastAutoConnectMarker != null && !BoshysBTEUtils.markers.contains(BoshysBTEUtils.lastAutoConnectMarker)) {
+            BoshysBTEUtils.lastAutoConnectMarker = null;
+        }
 
         // CRITICAL FIX: Remove old files from loaded state and tracking
         // BUT skip the merged file name to avoid deleting the file we just created
@@ -1023,24 +1101,30 @@ public class MarkerStorage {
             }
         }
 
-        // Load the merged file
+        // Load the merged file with all customised settings
         int loadedCount = 0;
         List<MarkerData.TeleportMarker> loadedMarkers = new ArrayList<>();
         Map<Integer, MarkerData.TeleportMarker> mergedIndexMap = new HashMap<>();
 
         for (int i = 0; i < mergedData.markers.size(); i++) {
             MarkerData.SavedMarkerData data = mergedData.markers.get(i);
+            // FIXED: Load all customised marker settings including circle properties
             MarkerData.TeleportMarker marker = new MarkerData.TeleportMarker(
-                    new Vec3d(data.x, data.y, data.z),
+                    new Vec3(data.x, data.y, data.z),
                     data.colour, data.scale, data.opacity
             );
             marker.circleRadius = data.circleRadius;
+            marker.circleColour = data.circleColour;
+            marker.circleOpacity = data.circleOpacity;
+            marker.circleThickness = data.circleThickness;
+            marker.circleSegmentPercent = data.circleSegmentPercent;
+
             BoshysBTEUtils.markers.add(marker);
             loadedMarkers.add(marker);
             loadedCount++;
 
             BoshysBTEUtils.markerOrigins.put(marker, mergedFileName);
-            BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3d(data.x, data.y, data.z));
+            BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(data.x, data.y, data.z));
             mergedIndexMap.put(i, marker);
             markerToFileId.put(marker, new FileMarkerId(mergedFileName, i));
         }
@@ -1052,7 +1136,13 @@ public class MarkerStorage {
             for (MarkerData.SavedConnectionData connData : mergedData.connections) {
                 if (connData.fromIndex >= 0 && connData.fromIndex < loadedMarkers.size() &&
                         connData.toIndex >= 0 && connData.toIndex < loadedMarkers.size()) {
-                    MarkerData.connectMarkers(loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex));
+                    // FIXED: Load connection with customised line properties
+                    MarkerData.MarkerConnection conn = MarkerData.connectMarkers(
+                            loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex)
+                    );
+                    conn.lineColour = connData.lineColour;
+                    conn.lineOpacity = connData.lineOpacity;
+                    conn.lineThickness = connData.lineThickness;
                     loadedConnections++;
                 }
             }
@@ -1061,14 +1151,14 @@ public class MarkerStorage {
         loadedFiles.put(mergedFileName, mergedData);
         modifiedLoadedFiles.remove(mergedFileName);
 
-        Text message = Text.literal("§aMerged " + allMarkers.size() + " markers")
-                .append(allConnections.size() > 0 ? Text.literal(" with " + allConnections.size() + " connections") : Text.literal(""))
-                .append(Text.literal(" into '"))
-                .append(Text.literal(mergedFileName).styled(style -> style.withBold(true)))
-                .append(Text.literal("' and loaded!"))
-                .styled(style -> style
+        Component message = Component.literal("§aMerged " + allMarkers.size() + " markers")
+                .append(allConnections.size() > 0 ? Component.literal(" with " + allConnections.size() + " connections") : Component.literal(""))
+                .append(Component.literal(" into '"))
+                .append(Component.literal(mergedFileName).withStyle(Style.EMPTY.withBold(true)))
+                .append(Component.literal("' and loaded!"))
+                .withStyle(style -> style
                         .withClickEvent(new ClickEvent.OpenFile(mergedFile.getParentFile().getAbsolutePath()))
-                        .withHoverEvent(new HoverEvent.ShowText(Text.literal("§eClick to open folder")))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
                 );
 
         source.sendFeedback(message);
@@ -1076,7 +1166,7 @@ public class MarkerStorage {
     }
     public int moveSelectedMarkers(FabricClientCommandSource source, double dx, double dy, double dz) {
         if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-            source.sendFeedback(Text.literal("§cNo markers selected!"));
+            source.sendError(Component.literal("§cNo markers selected!"));
             return 0;
         }
 
@@ -1105,7 +1195,7 @@ public class MarkerStorage {
                 // Also update original position tracking for backwards compatibility
                 String origin = BoshysBTEUtils.markerOrigins.get(marker);
                 if (origin != null && !origin.equals("autosave") && !origin.startsWith("autosave_")) {
-                    Vec3d currentOriginal = BoshysBTEUtils.markerOriginalPositions.get(marker);
+                    Vec3 currentOriginal = BoshysBTEUtils.markerOriginalPositions.get(marker);
                     if (currentOriginal != null) {
                         BoshysBTEUtils.markerOriginalPositions.put(marker, currentOriginal.add(dx, dy, dz));
                     }
@@ -1119,13 +1209,13 @@ public class MarkerStorage {
             }
         }
 
-        source.sendFeedback(Text.literal("§aMoved " + movedCount + " marker(s) by (" + dx + ", " + dy + ", " + dz + ")!"));
+        source.sendFeedback(Component.literal("§aMoved " + movedCount + " marker(s) by (" + dx + ", " + dy + ", " + dz + ")!"));
         return 1;
     }
 
     public int moveSelectedMarkersToPosition(FabricClientCommandSource source, double x, double y, double z) {
         if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-            source.sendFeedback(Text.literal("§cNo markers selected!"));
+            source.sendError(Component.literal("§cNo markers selected!"));
             return 0;
         }
 
@@ -1142,13 +1232,13 @@ public class MarkerStorage {
         String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
 
         if (cleanFilename.isEmpty()) {
-            source.sendFeedback(Text.literal("§cInvalid filename!"));
+            source.sendError(Component.literal("§cInvalid filename!"));
             return 0;
         }
 
         // Check if file is loaded
         if (!loadedFiles.containsKey(cleanFilename)) {
-            source.sendFeedback(Text.literal("§cFile '" + cleanFilename + "' is not loaded! Load it first with /boshys-bt-utils load " + cleanFilename));
+            source.sendError(Component.literal("§cFile '" + cleanFilename + "' is not loaded! Load it first with /boshys-bt-utils load " + cleanFilename));
             return 0;
         }
 
@@ -1176,7 +1266,7 @@ public class MarkerStorage {
         }
 
         if (markersToMove.isEmpty()) {
-            source.sendFeedback(Text.literal("§cNo markers found from file '" + cleanFilename + "'!"));
+            source.sendError(Component.literal("§cNo markers found from file '" + cleanFilename + "'!"));
             return 0;
         }
 
@@ -1188,7 +1278,7 @@ public class MarkerStorage {
                 movedCount++;
 
                 // CRITICAL FIX: Update original position tracking
-                Vec3d originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
+                Vec3 originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
                 if (originalPos != null) {
                     BoshysBTEUtils.markerOriginalPositions.put(marker, originalPos.add(dx, dy, dz));
                 }
@@ -1201,11 +1291,12 @@ public class MarkerStorage {
             modifiedLoadedFiles.put(cleanFilename, file);
         }
 
-        source.sendFeedback(Text.literal("§aMoved " + movedCount + " marker(s) from '" + cleanFilename + "' by (" + dx + ", " + dy + ", " + dz + ")!"));
+        source.sendFeedback(Component.literal("§aMoved " + movedCount + " marker(s) from '" + cleanFilename + "' by (" + dx + ", " + dy + ", " + dz + ")!"));
         return 1;
     }
 
     // FIXED: Autosave now properly includes line connections for modified loaded files
+    // FIXED: Now preserves all customised marker and connection settings
     public void performAutosave() {
         if (!BoshysBTEUtils.getConfig().enableAutosave) return;
 
@@ -1219,9 +1310,11 @@ public class MarkerStorage {
         for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
             String origin = BoshysBTEUtils.markerOrigins.get(marker);
             if (origin == null || origin.equals("autosave") || origin.startsWith("autosave_")) {
+                // FIXED: Preserve all customised settings including circle properties
                 cacheMarkers.add(new MarkerData.SavedMarkerData(
                         marker.position.x, marker.position.y, marker.position.z,
-                        marker.colour, marker.scale, marker.opacity
+                        marker.colour, marker.scale, marker.opacity,
+                        marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
                 ));
                 cacheMarkerObjects.add(marker);
             }
@@ -1240,7 +1333,10 @@ public class MarkerStorage {
                 Integer idx1 = cacheIndexMap.get(conn.marker1);
                 Integer idx2 = cacheIndexMap.get(conn.marker2);
                 if (idx1 != null && idx2 != null) {
-                    cacheConnections.add(new MarkerData.SavedConnectionData(idx1, idx2));
+                    // FIXED: Preserve connection line customisations
+                    cacheConnections.add(new MarkerData.SavedConnectionData(
+                            idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
+                    ));
                 }
             }
 
@@ -1260,6 +1356,7 @@ public class MarkerStorage {
         }
 
         // FIXED: Autosave modified loaded files with proper connection tracking
+        // FIXED: Now preserves all customised settings
         for (Map.Entry<String, MarkerData.SavedMarkerFile> entry : modifiedLoadedFiles.entrySet()) {
             String filename = entry.getKey();
             MarkerData.SavedMarkerFile fileData = entry.getValue();
@@ -1284,9 +1381,11 @@ public class MarkerStorage {
                         if (BoshysBTEUtils.markers.contains(marker)) {
                             String origin = BoshysBTEUtils.markerOrigins.get(marker);
                             if (filename.equals(origin)) {
+                                // FIXED: Preserve all customised settings including circle properties
                                 updatedMarkers.add(new MarkerData.SavedMarkerData(
                                         marker.position.x, marker.position.y, marker.position.z,
-                                        marker.colour, marker.scale, marker.opacity
+                                        marker.colour, marker.scale, marker.opacity,
+                                        marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
                                 ));
                                 markerIndexMap.put(marker, index);
                                 indexToMarker.put(index, marker);
@@ -1299,18 +1398,20 @@ public class MarkerStorage {
                 // Fallback: scan by original position
                 if (updatedMarkers.isEmpty()) {
                     for (MarkerData.SavedMarkerData originalData : fileData.markers) {
-                        Vec3d originalPos = new Vec3d(originalData.x, originalData.y, originalData.z);
+                        Vec3 originalPos = new Vec3(originalData.x, originalData.y, originalData.z);
 
                         boolean found = false;
                         for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
-                            Vec3d markerOriginalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
+                            Vec3 markerOriginalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
                             String origin = BoshysBTEUtils.markerOrigins.get(marker);
 
                             if (filename.equals(origin) && markerOriginalPos != null &&
                                     posKey(markerOriginalPos).equals(posKey(originalPos))) {
+                                // FIXED: Preserve all customised settings
                                 updatedMarkers.add(new MarkerData.SavedMarkerData(
                                         marker.position.x, marker.position.y, marker.position.z,
-                                        marker.colour, marker.scale, marker.opacity
+                                        marker.colour, marker.scale, marker.opacity,
+                                        marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
                                 ));
                                 markerIndexMap.put(marker, index);
                                 indexToMarker.put(index, marker);
@@ -1327,7 +1428,7 @@ public class MarkerStorage {
                     }
                 }
 
-                // FIXED: Save connections between markers in this file
+                // FIXED: Save connections between markers in this file with customised settings
                 // First, preserve existing connections that are still valid
                 if (fileData.connections != null) {
                     for (MarkerData.SavedConnectionData oldConn : fileData.connections) {
@@ -1338,7 +1439,10 @@ public class MarkerStorage {
                             Integer newFromIdx = markerIndexMap.get(fromMarker);
                             Integer newToIdx = markerIndexMap.get(toMarker);
                             if (newFromIdx != null && newToIdx != null) {
-                                updatedConnections.add(new MarkerData.SavedConnectionData(newFromIdx, newToIdx));
+                                // FIXED: Preserve connection line customisations
+                                updatedConnections.add(new MarkerData.SavedConnectionData(
+                                        newFromIdx, newToIdx, oldConn.lineColour, oldConn.lineOpacity, oldConn.lineThickness
+                                ));
                             }
                         }
                     }
@@ -1357,7 +1461,10 @@ public class MarkerStorage {
                     if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
                         String key = Math.min(idx1, idx2) + ":" + Math.max(idx1, idx2);
                         if (!existingConnections.contains(key)) {
-                            updatedConnections.add(new MarkerData.SavedConnectionData(idx1, idx2));
+                            // FIXED: Preserve connection line customisations
+                            updatedConnections.add(new MarkerData.SavedConnectionData(
+                                    idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
+                            ));
                             existingConnections.add(key);
                         }
                     }

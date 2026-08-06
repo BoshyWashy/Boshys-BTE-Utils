@@ -1,5 +1,5 @@
 package com.boshys.bteutils.commands;
-// Hi boshy is this in main branch if i commit and push
+
 import com.boshys.bteutils.BoshysBTEUtils;
 import com.boshys.bteutils.console.ConsoleMessageCommands;
 import com.boshys.bteutils.overlay.OverlayCommands;
@@ -12,11 +12,12 @@ import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.world.phys.Vec3;
 
 import java.awt.Desktop;
 import java.io.File;
@@ -81,81 +82,86 @@ public class CommandRegistry {
     public void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
 
         LiteralArgumentBuilder<FabricClientCommandSource> root =
-                ClientCommandManager.literal("boshys-bt-utils");
+                ClientCommands.literal("boshys-bt-utils");
 
         // ── clearMarkers ─────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("clearMarkers")
+        root.then(ClientCommands.literal("clearMarkers")
                 .executes(context -> {
                     int cacheCount = markerStorage.getCacheMarkerCount();
                     if (BoshysBTEUtils.getConfig().enableClearConfirmation && cacheCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
                         markerStorage.setPendingClear(cacheCount, false);
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required", cacheCount));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.confirm.required", cacheCount));
                         return 1;
                     }
                     int count = markerStorage.clearCacheMarkersOnly();
-                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
+                    context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.cleared", count));
                     return 1;
                 })
-                .then(ClientCommandManager.literal("all")
+                .then(ClientCommands.literal("all")
                         .executes(context -> {
                             int totalCount = BoshysBTEUtils.markers.size();
                             if (BoshysBTEUtils.getConfig().enableClearConfirmation && totalCount > BoshysBTEUtils.getConfig().clearConfirmLimit) {
                                 markerStorage.setPendingClear(totalCount, true);
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.required.all", totalCount));
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.confirm.required.all", totalCount));
                                 return 1;
                             }
                             int count = markerStorage.confirmClear();
-                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
+                            context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.cleared.all", count));
                             return 1;
                         })));
 
         // ── confirmClear ─────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("confirmClear")
+        root.then(ClientCommands.literal("confirmClear")
                 .executes(context -> {
                     if (!markerStorage.hasPendingClear()) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.confirm.none"));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.confirm.none"));
                         return 0;
                     }
                     int count = markerStorage.confirmClear();
                     if (markerStorage.isPendingClearAll()) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared.all", count));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.cleared.all", count));
                     } else {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.cleared", count));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.cleared", count));
                     }
                     return 1;
                 }));
 
         // ── deselect ─────────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("deselect")
+        root.then(ClientCommands.literal("deselect")
                 .executes(context -> {
-                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.deselect.none"));
+                    int markerCount = BoshysBTEUtils.selectedMarkers.size();
+                    int lineCount = BoshysBTEUtils.selectedConnections.size();
+                    if (markerCount == 0 && lineCount == 0) {
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.deselect.none"));
                         return 0;
                     }
-                    int count = BoshysBTEUtils.selectedMarkers.size();
                     BoshysBTEUtils.selectedMarkers.clear();
-                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.deselected.all", count));
+                    BoshysBTEUtils.selectedConnections.clear();
+                    // Clear lastAutoConnectMarker so next placed marker won't auto-connect
+                    // to the previously deselected marker
+                    BoshysBTEUtils.lastAutoConnectMarker = null;
+                    context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.deselected.all", markerCount + lineCount));
                     return 1;
                 }));
 
         // ── addMarker ────────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("addMarker")
+        root.then(ClientCommands.literal("addMarker")
                 .executes(context -> {
                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled"));
                         return 0;
                     }
                     if (BoshysBTEUtils.markersHidden) {
                         if (!BoshysBTEUtils.hideWarningShown) {
-                            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                            context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
                             BoshysBTEUtils.hideWarningShown = true;
                         }
                         return 0;
                     }
-                    ClientPlayerEntity player = context.getSource().getPlayer();
+                    LocalPlayer player = context.getSource().getPlayer();
                     com.boshys.bteutils.data.MarkerData.TeleportMarker newMarker =
                             com.boshys.bteutils.data.MarkerData.addMarker(
-                                    new net.minecraft.util.math.Vec3d(player.getX(), player.getY(), player.getZ()));
+                                    new Vec3(player.getX(), player.getY(), player.getZ()));
                     if (BoshysBTEUtils.getConfig().enableAutoLineConnection) {
                         com.boshys.bteutils.data.MarkerData.handleAutoConnect(newMarker);
                     }
@@ -163,114 +169,97 @@ public class CommandRegistry {
                         sendFirstMarkerMessage(context.getSource());
                         BoshysBTEUtils.hasAddedMarkerThisSession = true;
                     } else {
-                        player.sendMessage(Text.translatable("command.boshysbteutils.marker.added_actionbar")
-                                .formatted(net.minecraft.util.Formatting.GREEN), true);
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.added_actionbar")
+                                .withStyle(ChatFormatting.GREEN));
                     }
                     return 1;
                 }));
 
         // ── tempHide ─────────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("tempHide")
-                .then(ClientCommandManager.argument("hide", BoolArgumentType.bool())
+        root.then(ClientCommands.literal("tempHide")
+                .executes(context -> {
+                    // Toggle mode: no argument provided
+                    if (BoshysBTEUtils.markersHidden) {
+                        BoshysBTEUtils.showAllMarkers();
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.temphide.shown"));
+                    } else {
+                        BoshysBTEUtils.hideAllMarkers();
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.temphide.hidden"));
+                    }
+                    return 1;
+                })
+                .then(ClientCommands.argument("hide", BoolArgumentType.bool())
                         .executes(context -> {
                             boolean shouldHide = BoolArgumentType.getBool(context, "hide");
                             if (shouldHide) {
                                 if (BoshysBTEUtils.markersHidden) {
-                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_hidden"));
+                                    context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.temphide.already_hidden"));
                                     return 0;
                                 }
                                 BoshysBTEUtils.hideAllMarkers();
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.hidden"));
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.temphide.hidden"));
                             } else {
                                 if (!BoshysBTEUtils.markersHidden) {
-                                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.already_shown"));
+                                    context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.temphide.already_shown"));
                                     return 0;
                                 }
                                 BoshysBTEUtils.showAllMarkers();
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.temphide.shown"));
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.temphide.shown"));
                             }
                             return 1;
                         })));
 
-        // ── updateMarkerDesign ───────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("updateMarkerDesign")
-                .executes(context -> {
-                    if (BoshysBTEUtils.markersHidden) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                        return 0;
-                    }
-                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
-                        return 0;
-                    }
-                    if (BoshysBTEUtils.markers.isEmpty()) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.no_markers"));
-                        return 0;
-                    }
-                    if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                        int n = 0;
-                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.selectedMarkers) {
-                            com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
-                        }
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated.selected", n));
-                    } else {
-                        int n = 0;
-                        for (com.boshys.bteutils.data.MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
-                            com.boshys.bteutils.data.MarkerData.updateMarkerDesign(m); n++;
-                        }
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.updated", n));
-                    }
-                    return 1;
-                }));
+        // ── customise ────────────────────────────────────────────────────────
+        root.then(CustomiseCommands.build());
 
         // ── moveMarker ───────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("moveMarker")
-                .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
-                        .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
-                                .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+        root.then(ClientCommands.literal("moveMarker")
+                .then(ClientCommands.argument("x", DoubleArgumentType.doubleArg())
+                        .then(ClientCommands.argument("y", DoubleArgumentType.doubleArg())
+                                .then(ClientCommands.argument("z", DoubleArgumentType.doubleArg())
                                         .executes(context -> {
                                             if (BoshysBTEUtils.markersHidden) {
-                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
                                             }
                                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
                                             }
                                             if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection")); return 0;
+                                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.no_selection")); return 0;
                                             }
                                             return markerStorage.moveSelectedMarkers(context.getSource(),
                                                     DoubleArgumentType.getDouble(context, "x"),
                                                     DoubleArgumentType.getDouble(context, "y"),
                                                     DoubleArgumentType.getDouble(context, "z"));
-                                        }))))
-                .executes(context -> {
-                    if (BoshysBTEUtils.markersHidden) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
-                    }
-                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
-                    }
-                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.marker.no_selection")); return 0;
-                    }
-                    ClientPlayerEntity player = context.getSource().getPlayer();
-                    return markerStorage.moveSelectedMarkersToPosition(context.getSource(), player.getX(), player.getY(), player.getZ());
-                }));
+                                        })))
+                        .executes(context -> {
+                            if (BoshysBTEUtils.markersHidden) {
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                            }
+                            if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                            }
+                            if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.no_selection")); return 0;
+                            }
+                            LocalPlayer player = context.getSource().getPlayer();
+                            return markerStorage.moveSelectedMarkersToPosition(context.getSource(), player.getX(), player.getY(), player.getZ());
+                        })));
 
         // ── moveAllSavedMarkers ──────────────────────────────────────────────
         // (previously "moveAllMarkers" — renamed to avoid confusion with the new moveAllTempMarkers)
-        root.then(ClientCommandManager.literal("moveAllSavedMarkers")
-                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+        root.then(ClientCommands.literal("moveAllSavedMarkers")
+                .then(ClientCommands.argument("filename", StringArgumentType.string())
                         .suggests(LOADABLE_FILE_SUGGESTIONS)
-                        .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
-                                .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
-                                        .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+                        .then(ClientCommands.argument("x", DoubleArgumentType.doubleArg())
+                                .then(ClientCommands.argument("y", DoubleArgumentType.doubleArg())
+                                        .then(ClientCommands.argument("z", DoubleArgumentType.doubleArg())
                                                 .executes(context -> {
                                                     if (BoshysBTEUtils.markersHidden) {
-                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                                                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
                                                     }
                                                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                                                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
                                                     }
                                                     return markerStorage.moveAllMarkersInFile(context.getSource(),
                                                             StringArgumentType.getString(context, "filename"),
@@ -281,16 +270,16 @@ public class CommandRegistry {
 
         // ── moveAllTempMarkers ───────────────────────────────────────────────
         // Moves all cached (unsaved) markers — optionally filtered by radius.
-        root.then(ClientCommandManager.literal("moveAllTempMarkers")
-                .then(ClientCommandManager.argument("x", DoubleArgumentType.doubleArg())
-                        .then(ClientCommandManager.argument("y", DoubleArgumentType.doubleArg())
-                                .then(ClientCommandManager.argument("z", DoubleArgumentType.doubleArg())
+        root.then(ClientCommands.literal("moveAllTempMarkers")
+                .then(ClientCommands.argument("x", DoubleArgumentType.doubleArg())
+                        .then(ClientCommands.argument("y", DoubleArgumentType.doubleArg())
+                                .then(ClientCommands.argument("z", DoubleArgumentType.doubleArg())
                                         .executes(context -> {
                                             if (BoshysBTEUtils.markersHidden) {
-                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
                                             }
                                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
                                             }
                                             return moveAllTempMarkers(context.getSource(),
                                                     DoubleArgumentType.getDouble(context, "x"),
@@ -298,13 +287,13 @@ public class CommandRegistry {
                                                     DoubleArgumentType.getDouble(context, "z"),
                                                     -1);
                                         })
-                                        .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
+                                        .then(ClientCommands.argument("radius", DoubleArgumentType.doubleArg(0))
                                                 .executes(context -> {
                                                     if (BoshysBTEUtils.markersHidden) {
-                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                                                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
                                                     }
                                                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                                                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
                                                     }
                                                     return moveAllTempMarkers(context.getSource(),
                                                             DoubleArgumentType.getDouble(context, "x"),
@@ -314,29 +303,29 @@ public class CommandRegistry {
                                                 }))))));
 
         // ── saveMarkers ──────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("saveMarkers")
-                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+        root.then(ClientCommands.literal("saveMarkers")
+                .then(ClientCommands.argument("filename", StringArgumentType.string())
                         .executes(context -> markerStorage.saveMarkersToFile(context.getSource(),
                                 StringArgumentType.getString(context, "filename"), -1))
-                        .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
+                        .then(ClientCommands.argument("radius", DoubleArgumentType.doubleArg(0))
                                 .executes(context -> markerStorage.saveMarkersToFile(context.getSource(),
                                         StringArgumentType.getString(context, "filename"),
                                         DoubleArgumentType.getDouble(context, "radius"))))));
 
         // ── updateMarkers ────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("updateMarkers")
-                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+        root.then(ClientCommands.literal("updateMarkers")
+                .then(ClientCommands.argument("filename", StringArgumentType.string())
                         .suggests(SAVED_FILE_SUGGESTIONS)
                         .executes(context -> markerStorage.updateMarkerFile(context.getSource(),
                                 StringArgumentType.getString(context, "filename"), -1))
-                        .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0))
+                        .then(ClientCommands.argument("radius", DoubleArgumentType.doubleArg(0))
                                 .executes(context -> markerStorage.updateMarkerFile(context.getSource(),
                                         StringArgumentType.getString(context, "filename"),
                                         DoubleArgumentType.getDouble(context, "radius"))))));
 
         // ── load ─────────────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("load")
-                .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
+        root.then(ClientCommands.literal("load")
+                .then(ClientCommands.argument("filename", StringArgumentType.greedyString())
                         .suggests(LOADABLE_FILE_SUGGESTIONS)
                         .executes(context -> {
                             String filename = StringArgumentType.getString(context, "filename").trim();
@@ -345,8 +334,8 @@ public class CommandRegistry {
                         })));
 
         // ── hide ─────────────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("hide")
-                .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
+        root.then(ClientCommands.literal("hide")
+                .then(ClientCommands.argument("filename", StringArgumentType.greedyString())
                         .suggests(LOADED_FILE_SUGGESTIONS)
                         .executes(context -> {
                             String filename = StringArgumentType.getString(context, "filename").trim();
@@ -355,40 +344,40 @@ public class CommandRegistry {
                         })));
 
         // ── delete ───────────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("delete")
-                .then(ClientCommandManager.argument("filename", StringArgumentType.greedyString())
+        root.then(ClientCommands.literal("delete")
+                .then(ClientCommands.argument("filename", StringArgumentType.greedyString())
                         .suggests(ALL_FILE_SUGGESTIONS)
                         .executes(context -> markerStorage.deleteMarkerFile(context.getSource(),
                                 StringArgumentType.getString(context, "filename")))));
 
         // ── mergeMarkers ─────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("mergeMarkers")
-                .then(ClientCommandManager.argument("mergedFileName", StringArgumentType.string())
-                        .then(ClientCommandManager.argument("includeCached", StringArgumentType.string())
+        root.then(ClientCommands.literal("mergeMarkers")
+                .then(ClientCommands.argument("mergedFileName", StringArgumentType.string())
+                        .then(ClientCommands.argument("includeCached", StringArgumentType.string())
                                 .suggests(INCLUDE_EXCLUDE_SUGGESTIONS)
-                                .then(ClientCommandManager.argument("file1", StringArgumentType.string())
+                                .then(ClientCommands.argument("file1", StringArgumentType.string())
                                         .suggests(MERGE_FILE_SUGGESTIONS)
                                         .executes(context -> executeMerge(context))
-                                        .then(ClientCommandManager.argument("file2", StringArgumentType.string())
+                                        .then(ClientCommands.argument("file2", StringArgumentType.string())
                                                 .suggests(MERGE_FILE_SUGGESTIONS)
                                                 .executes(context -> executeMerge(context))
-                                                .then(ClientCommandManager.argument("file3", StringArgumentType.string())
+                                                .then(ClientCommands.argument("file3", StringArgumentType.string())
                                                         .suggests(MERGE_FILE_SUGGESTIONS)
                                                         .executes(context -> executeMerge(context))
-                                                        .then(ClientCommandManager.argument("file4", StringArgumentType.string())
+                                                        .then(ClientCommands.argument("file4", StringArgumentType.string())
                                                                 .suggests(MERGE_FILE_SUGGESTIONS)
                                                                 .executes(context -> executeMerge(context))
-                                                                .then(ClientCommandManager.argument("file5", StringArgumentType.string())
+                                                                .then(ClientCommands.argument("file5", StringArgumentType.string())
                                                                         .suggests(MERGE_FILE_SUGGESTIONS)
                                                                         .executes(context -> executeMerge(context))))))))));
 
         // ── importKML ────────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("importKML")
-                .then(ClientCommandManager.argument("filename", StringArgumentType.string())
+        root.then(ClientCommands.literal("importKML")
+                .then(ClientCommands.argument("filename", StringArgumentType.string())
                         .suggests(KML_FILE_SUGGESTIONS)
                         .executes(context -> {
                             if (BoshysBTEUtils.markersHidden) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
                                 return 0;
                             }
                             return kmlImportHandler.importKmlFile(context.getSource(),
@@ -396,27 +385,18 @@ public class CommandRegistry {
                         })));
 
         // ── importMultipleKMLs ───────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("importMultipleKMLs")
-                .executes(context -> {
-                    if (BoshysBTEUtils.markersHidden) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
-                        return 0;
-                    }
-                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
-                    return 0;
-                })
-                .then(buildImportMultipleKmls()));
+        root.then(buildImportMultipleKmls());
 
         // ── stopImport ───────────────────────────────────────────────────────
         // Stops any active KML import or queued imports immediately.
-        root.then(ClientCommandManager.literal("stopImport")
+        root.then(ClientCommands.literal("stopImport")
                 .executes(context -> {
                     kmlImportHandler.stopImport(context.getSource().getClient());
                     return 1;
                 }));
 
         // ── markerFileLocation ───────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("markerFileLocation")
+        root.then(ClientCommands.literal("markerFileLocation")
                 .executes(context -> {
                     Path savePath = MarkerStorage.getMarkersSavePath();
                     File dir = savePath.toFile();
@@ -452,29 +432,29 @@ public class CommandRegistry {
                         }
                     }
                     if (opened) {
-                        context.getSource().sendFeedback(Text.translatable(
+                        context.getSource().sendFeedback(Component.translatable(
                                 "command.boshysbteutils.file.location.opened", savePath.toAbsolutePath().toString()));
                     } else {
-                        context.getSource().sendFeedback(Text.translatable(
+                        context.getSource().sendFeedback(Component.translatable(
                                 "command.boshysbteutils.file.location.failed", savePath.toAbsolutePath().toString()));
                     }
                     return 1;
                 }));
 
         // ── createCircle ─────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("createCircle")
-                .then(ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0.1))
+        root.then(ClientCommands.literal("createCircle")
+                .then(ClientCommands.argument("radius", DoubleArgumentType.doubleArg(0.1))
                         .executes(context -> {
                             if (BoshysBTEUtils.markersHidden) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
                                 return 0;
                             }
                             if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                                context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+                                context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled"));
                                 return 0;
                             }
                             double radius = DoubleArgumentType.getDouble(context, "radius");
-                            ClientPlayerEntity player = context.getSource().getPlayer();
+                            LocalPlayer player = context.getSource().getPlayer();
 
                             if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
                                 // Attach circle to each selected marker
@@ -483,33 +463,33 @@ public class CommandRegistry {
                                     marker.circleRadius = radius;
                                     count++;
                                 }
-                                context.getSource().sendFeedback(Text.translatable(
+                                context.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.circle.created.selected", count, radius));
                             } else {
                                 // Create a new marker at player position and attach circle
-                                Vec3d pos = new Vec3d(player.getX(), player.getY(), player.getZ());
+                                Vec3 pos = new Vec3(player.getX(), player.getY(), player.getZ());
                                 com.boshys.bteutils.data.MarkerData.TeleportMarker newMarker =
                                         com.boshys.bteutils.data.MarkerData.addMarker(pos);
                                 newMarker.circleRadius = radius;
-                                context.getSource().sendFeedback(Text.translatable(
+                                context.getSource().sendFeedback(Component.translatable(
                                         "command.boshysbteutils.circle.created.new", radius));
                             }
                             return 1;
                         })));
 
         // ── removeCircle ─────────────────────────────────────────────────────
-        root.then(ClientCommandManager.literal("removeCircle")
+        root.then(ClientCommands.literal("removeCircle")
                 .executes(context -> {
                     if (BoshysBTEUtils.markersHidden) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
                         return 0;
                     }
                     if (!BoshysBTEUtils.getConfig().enableMarkers) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled"));
                         return 0;
                     }
                     if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.circle.no_selection"));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.circle.no_selection"));
                         return 0;
                     }
                     int count = 0;
@@ -520,18 +500,18 @@ public class CommandRegistry {
                         }
                     }
                     if (count == 0) {
-                        context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.circle.none_had_circle"));
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.circle.none_had_circle"));
                         return 0;
                     }
-                    context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.circle.removed", count));
+                    context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.circle.removed", count));
                     return 1;
                 }));
 
         // ── resetManualTpllLinesSequence ────────────────────────────────────
-        root.then(ClientCommandManager.literal("resetManualTpllLinesSequence")
+        root.then(ClientCommands.literal("resetManualTpllLinesSequence")
                 .executes(context -> {
                     BoshysBTEUtils.INSTANCE.resetManualTpllWeLinesSequence();
-                    context.getSource().sendFeedback(Text.translatable(
+                    context.getSource().sendFeedback(Component.translatable(
                             "command.boshysbteutils.manual_we_lines.reset"));
                     return 1;
                 }));
@@ -548,6 +528,9 @@ public class CommandRegistry {
         // ── overlay ──────────────────────────────────────────────────────────
         root.then(new OverlayCommands(overlayStorage).build());
 
+        // ── customise ────────────────────────────────────────────────────────
+        root.then(CustomiseCommands.build());
+
         dispatcher.register(root);
     }
 
@@ -556,8 +539,8 @@ public class CommandRegistry {
     // -----------------------------------------------------------------------
 
     private int moveAllTempMarkers(FabricClientCommandSource source, double dx, double dy, double dz, double radius) {
-        ClientPlayerEntity player = source.getPlayer();
-        Vec3d playerPos = player != null ? new Vec3d(player.getX(), player.getY(), player.getZ()) : null;
+        LocalPlayer player = source.getPlayer();
+        Vec3 playerPos = player != null ? new Vec3(player.getX(), player.getY(), player.getZ()) : null;
 
         int movedCount = 0;
         for (com.boshys.bteutils.data.MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
@@ -567,19 +550,23 @@ public class CommandRegistry {
                 continue;
             }
             // Apply optional radius filter centred on the player
-            if (radius >= 0 && playerPos != null && marker.position.distanceTo(playerPos) > radius) {
+            if (radius >= 0 && playerPos != null && Math.sqrt(
+                    (marker.position.x() - playerPos.x()) * (marker.position.x() - playerPos.x())
+                            + (marker.position.y() - playerPos.y()) * (marker.position.y() - playerPos.y())
+                            + (marker.position.z() - playerPos.z()) * (marker.position.z() - playerPos.z())
+            ) > radius) {
                 continue;
             }
-            marker.position = marker.position.add(dx, dy, dz);
+            marker.position = new Vec3(marker.position.x() + dx, marker.position.y() + dy, marker.position.z() + dz);
             movedCount++;
         }
 
         if (movedCount == 0) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.error.no_cache_markers"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.error.no_cache_markers"));
             return 0;
         }
 
-        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.temp_moved", movedCount, dx, dy, dz));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.marker.temp_moved", movedCount, dx, dy, dz));
         return 1;
     }
 
@@ -588,56 +575,65 @@ public class CommandRegistry {
     // -----------------------------------------------------------------------
 
     private LiteralArgumentBuilder<FabricClientCommandSource> buildImportMultipleKmls() {
-        var file10 = ClientCommandManager.argument("file10", StringArgumentType.string())
+        var file10 = ClientCommands.argument("file10", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 10));
 
-        var file9 = ClientCommandManager.argument("file9", StringArgumentType.string())
+        var file9 = ClientCommands.argument("file9", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 9))
                 .then(file10);
 
-        var file8 = ClientCommandManager.argument("file8", StringArgumentType.string())
+        var file8 = ClientCommands.argument("file8", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 8))
                 .then(file9);
 
-        var file7 = ClientCommandManager.argument("file7", StringArgumentType.string())
+        var file7 = ClientCommands.argument("file7", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 7))
                 .then(file8);
 
-        var file6 = ClientCommandManager.argument("file6", StringArgumentType.string())
+        var file6 = ClientCommands.argument("file6", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 6))
                 .then(file7);
 
-        var file5 = ClientCommandManager.argument("file5", StringArgumentType.string())
+        var file5 = ClientCommands.argument("file5", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 5))
                 .then(file6);
 
-        var file4 = ClientCommandManager.argument("file4", StringArgumentType.string())
+        var file4 = ClientCommands.argument("file4", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 4))
                 .then(file5);
 
-        var file3 = ClientCommandManager.argument("file3", StringArgumentType.string())
+        var file3 = ClientCommands.argument("file3", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 3))
                 .then(file4);
 
-        var file2 = ClientCommandManager.argument("file2", StringArgumentType.string())
+        var file2 = ClientCommands.argument("file2", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 2))
                 .then(file3);
 
-        var file1 = ClientCommandManager.argument("file1", StringArgumentType.string())
+        var file1 = ClientCommands.argument("file1", StringArgumentType.string())
                 .suggests(KML_FILE_SUGGESTIONS)
                 .executes(ctx -> executeMultipleKmlImport(ctx, 1))
                 .then(file2);
 
-        return ClientCommandManager.literal("importMultipleKMLs").then(file1);
+        return ClientCommands.literal("importMultipleKMLs")
+                .executes(context -> {
+                    if (BoshysBTEUtils.markersHidden) {
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
+                        return 0;
+                    }
+                    context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.kml.queue.no_files"));
+                    return 0;
+                })
+                .then(file1);
     }
 
     // -----------------------------------------------------------------------
@@ -646,7 +642,7 @@ public class CommandRegistry {
 
     private int executeMultipleKmlImport(com.mojang.brigadier.context.CommandContext<FabricClientCommandSource> context, int argCount) {
         if (BoshysBTEUtils.markersHidden) {
-            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+            context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
             return 0;
         }
         List<String> files = new ArrayList<>();
@@ -662,20 +658,20 @@ public class CommandRegistry {
         try { files.add(StringArgumentType.getString(context, "file10")); } catch (Exception ignored) {}
 
         if (files.isEmpty()) {
-            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
+            context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.kml.queue.no_files"));
             return 0;
         }
         return kmlImportHandler.importMultipleKmlFiles(context.getSource(), files);
     }
 
     private void sendFirstMarkerMessage(FabricClientCommandSource source) {
-        source.sendFeedback(Text.literal("§7============= §aBoshy's BT-Utils §7============="));
-        source.sendFeedback(Text.literal(""));
-        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.select"));
-        source.sendFeedback(Text.literal(""));
-        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.multiselect"));
-        source.sendFeedback(Text.literal(""));
-        source.sendFeedback(Text.translatable("command.boshysbteutils.marker.first_time.move"));
+        source.sendFeedback(Component.literal("§7============= §aBoshy's BT-Utils §7============="));
+        source.sendFeedback(Component.literal(""));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.marker.first_time.select"));
+        source.sendFeedback(Component.literal(""));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.marker.first_time.multiselect"));
+        source.sendFeedback(Component.literal(""));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.marker.first_time.move"));
     }
 
     private int loadAllFiles(FabricClientCommandSource source) {
@@ -683,7 +679,7 @@ public class CommandRegistry {
         File dir = savePath.toFile();
 
         if (!dir.exists() || !dir.isDirectory()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.file.not_found", "*"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.file.not_found", "*"));
             return 0;
         }
 
@@ -691,7 +687,7 @@ public class CommandRegistry {
                 name.endsWith(".json") && !name.equals("autosave.json") && !name.startsWith("autosave_"));
 
         if (files == null || files.length == 0) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.file.not_found", "*"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.file.not_found", "*"));
             return 0;
         }
 
@@ -710,17 +706,17 @@ public class CommandRegistry {
         }
 
         if (loadedCount > 0) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.file.loaded.multiple", loadedCount, String.join(", ", loadedFiles)));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.file.loaded.multiple", loadedCount, String.join(", ", loadedFiles)));
         }
         if (!failedFiles.isEmpty()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.file.load_failed.multiple", String.join(", ", failedFiles)));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.file.load_failed.multiple", String.join(", ", failedFiles)));
         }
         return loadedCount > 0 ? 1 : 0;
     }
 
     private int hideAllFiles(FabricClientCommandSource source) {
         if (markerStorage.getLoadedFiles().isEmpty()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.file.none_loaded"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.file.none_loaded"));
             return 0;
         }
 
@@ -729,7 +725,7 @@ public class CommandRegistry {
         for (String filename : filesToHide) {
             if (markerStorage.hideMarkerFile(source, filename) == 1) hiddenCount++;
         }
-        source.sendFeedback(Text.translatable("command.boshysbteutils.file.hidden.multiple", hiddenCount));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.file.hidden.multiple", hiddenCount));
         return hiddenCount > 0 ? 1 : 0;
     }
 
@@ -745,7 +741,7 @@ public class CommandRegistry {
         try { files.add(StringArgumentType.getString(context, "file5")); } catch (Exception ignored) {}
 
         if (files.isEmpty()) {
-            context.getSource().sendFeedback(Text.translatable("command.boshysbteutils.merge.no_files"));
+            context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.merge.no_files"));
             return 0;
         }
         return markerStorage.mergeMarkerFiles(context.getSource(), mergedFileName,

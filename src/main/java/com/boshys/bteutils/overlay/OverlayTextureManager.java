@@ -1,10 +1,9 @@
 package com.boshys.bteutils.overlay;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
@@ -74,7 +73,7 @@ public class OverlayTextureManager {
 
     /**
      * Loads a JPEG or PNG from disk and registers it with Minecraft's texture manager
-     * as a {@link NativeImageBackedTexture}.
+     * as a {@link DynamicTexture}.
      */
     private Identifier uploadTexture(String imageFilename, File imageFile) throws Exception {
         String lower = imageFilename.toLowerCase();
@@ -98,28 +97,25 @@ public class OverlayTextureManager {
             for (int y = 0; y < h; y++) {
                 for (int x = 0; x < w; x++) {
                     int argb = buffered.getRGB(x, y);
-                    // AWT gives ARGB; NativeImage.setColor expects ABGR
+                    // AWT gives ARGB; NativeImage.setPixelRGBA expects ABGR
                     int a = (argb >> 24) & 0xFF;
                     int r = (argb >> 16) & 0xFF;
                     int g = (argb >> 8) & 0xFF;
                     int b = argb & 0xFF;
                     // Pack as ABGR
                     int abgr = (a << 24) | (b << 16) | (g << 8) | r;
-                    nativeImage.setColorArgb(x, y, abgr);
+                    nativeImage.setPixel(x, y, abgr);
                 }
             }
         }
 
-        NativeImageBackedTexture texture = new NativeImageBackedTexture(
-                () -> "bteutils_overlay_" + imageFilename,
-                nativeImage
-        );
+        DynamicTexture texture = new DynamicTexture(() -> "boshysbteutils/overlay/" + imageFilename, nativeImage);
 
         // Create a deterministic identifier from the filename
         String safeName = imageFilename.toLowerCase().replaceAll("[^a-z0-9_./]", "_");
-        Identifier id = Identifier.of(NAMESPACE, "overlays/" + safeName);
+        Identifier id = Identifier.fromNamespaceAndPath(NAMESPACE, "overlays/" + safeName);
 
-        MinecraftClient.getInstance().getTextureManager().registerTexture(id, texture);
+        Minecraft.getInstance().getTextureManager().register(id, texture);
         return id;
     }
 
@@ -130,7 +126,7 @@ public class OverlayTextureManager {
     public void evict(String imageFilename) {
         Identifier id = textureCache.remove(imageFilename);
         if (id != null) {
-            MinecraftClient.getInstance().getTextureManager().destroyTexture(id);
+            Minecraft.getInstance().getTextureManager().release(id);
         }
     }
 
@@ -138,7 +134,7 @@ public class OverlayTextureManager {
     public void evictAll() {
         for (Map.Entry<String, Identifier> entry : textureCache.entrySet()) {
             if (entry.getValue() != null) {
-                MinecraftClient.getInstance().getTextureManager().destroyTexture(entry.getValue());
+                Minecraft.getInstance().getTextureManager().release(entry.getValue());
             }
         }
         textureCache.clear();
