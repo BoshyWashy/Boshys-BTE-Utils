@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.boshys.bteutils"
-version = "Fabric_26.2-2.1-18"
+version = "Fabric_26.2-2.1+26"
 
 java {
     toolchain {

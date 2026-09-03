@@ -169,8 +169,13 @@ public class CommandRegistry {
                         sendFirstMarkerMessage(context.getSource());
                         BoshysBTEUtils.hasAddedMarkerThisSession = true;
                     } else {
-                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.added_actionbar")
-                                .withStyle(ChatFormatting.GREEN));
+                        LocalPlayer p = context.getSource().getPlayer();
+                        if (p != null) {
+                            new net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket(
+                                    Component.translatable("command.boshysbteutils.marker.added_actionbar")
+                                            .withStyle(ChatFormatting.GREEN)
+                            ).handle(p.connection);
+                        }
                     }
                     return 1;
                 }));
@@ -214,6 +219,19 @@ public class CommandRegistry {
 
         // ── moveMarker ───────────────────────────────────────────────────────
         root.then(ClientCommands.literal("moveMarker")
+                .executes(context -> {
+                    if (BoshysBTEUtils.markersHidden) {
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden")); return 0;
+                    }
+                    if (!BoshysBTEUtils.getConfig().enableMarkers) {
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled")); return 0;
+                    }
+                    if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
+                        context.getSource().sendFeedback(Component.translatable("command.boshysbteutils.marker.no_selection")); return 0;
+                    }
+                    LocalPlayer player = context.getSource().getPlayer();
+                    return markerStorage.moveSelectedMarkersToPosition(context.getSource(), player.getX(), player.getY(), player.getZ());
+                })
                 .then(ClientCommands.argument("x", DoubleArgumentType.doubleArg())
                         .then(ClientCommands.argument("y", DoubleArgumentType.doubleArg())
                                 .then(ClientCommands.argument("z", DoubleArgumentType.doubleArg())

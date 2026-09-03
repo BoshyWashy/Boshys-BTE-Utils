@@ -350,9 +350,11 @@ public class BoshysBTEUtils implements ClientModInitializer {
             if (!hasAddedMarkerThisSession) {
                 sendFirstMarkerMessage(client);
                 hasAddedMarkerThisSession = true;
-            } else {
-                notifyActionBar(client, "command.boshysbteutils.marker.added_actionbar");
             }
+            new net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket(
+                    Component.translatable("command.boshysbteutils.marker.added_actionbar")
+                            .withStyle(net.minecraft.ChatFormatting.GREEN)
+            ).handle(client.player.connection);
         }
 
         while (clearMarkersKeybind.consumeClick()) {
@@ -748,12 +750,17 @@ public class BoshysBTEUtils implements ClientModInitializer {
                     if (!hasSelectedMarkerThisSession) {
                         sendFirstSelectionMessage(client);
                         hasSelectedMarkerThisSession = true;
+                    }
+                    if (selectedMarkers.size() == 1) {
+                        new net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket(
+                                Component.translatable("command.boshysbteutils.marker.selected_actionbar.single")
+                                        .withStyle(net.minecraft.ChatFormatting.GREEN)
+                        ).handle(client.player.connection);
                     } else {
-                        if (selectedMarkers.size() == 1) {
-                            notifyActionBar(client, "command.boshysbteutils.marker.selected_actionbar.single");
-                        } else {
-                            notifyActionBar(client, "command.boshysbteutils.marker.selected_actionbar.multiple", selectedMarkers.size());
-                        }
+                        new net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket(
+                                Component.translatable("command.boshysbteutils.marker.selected_actionbar.multiple", selectedMarkers.size())
+                                        .withStyle(net.minecraft.ChatFormatting.GREEN)
+                        ).handle(client.player.connection);
                     }
                 }
             }
@@ -888,7 +895,10 @@ public class BoshysBTEUtils implements ClientModInitializer {
 
     private void notifyActionBar(Minecraft client, String translationKey, Object... args) {
         if (client == null || client.player == null) return;
-        client.player.sendSystemMessage(Component.translatable(translationKey, args).withStyle(net.minecraft.ChatFormatting.GREEN));
+        new net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket(
+                Component.translatable(translationKey, args)
+                        .withStyle(net.minecraft.ChatFormatting.GREEN)
+        ).handle(client.player.connection);
     }
 
     /**
