@@ -114,8 +114,8 @@
   "command.boshysbteutils.kml.import.normal": "§aVocê pode usar o Minecraft normalmente agora.",
   "command.boshysbteutils.kml.import.progress": "Ponto %d/%d",
   "command.boshysbteutils.kml.import.progress.detailed": "Ponto %d/%d§e - Movido %.1f blocos",
-  "command.boshysbteutils.kml.import.title.active": "§c§lImportação em andamento",
-  "command.boshysbteutils.kml.import.subtitle.dont_move": "§eNão se mova até terminar!",
+  "command.boshysbteutils.kml.import.title.active": "Importação em andamento",
+  "command.boshysbteutils.kml.import.subtitle.dont_move": "Não se mova até terminar!",
   "command.boshysbteutils.kml.import.timeout_warning": "§ePonto %d§e expirou (lag detectado), continuando...",
   "command.boshysbteutils.kml.import.in_progress": "§cImportação KML já em andamento! Por favor, aguarde...",
   "command.boshysbteutils.kml.import.no_points": "§cNenhuma coordenada válida encontrada no arquivo KML!",
@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Cor padrão para contornos de círculos em formato hex",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Opacidade padrão do círculo",
   "command.boshysbteutils.customise.circle.segments": "§aTamanho do segmento de §f%d§a círculo(s) atualizado para §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Opacidade padrão para contornos de círculos (0,0 a 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Opacidade padrão para contornos de círculos (0,0 a 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lAVISO:§r§e A função de opacidade para sobreposições não funciona no Minecraft 26.2 e todas as sobreposições terão um tom escuro devido a um problema de renderização. Desculpe!"
 }

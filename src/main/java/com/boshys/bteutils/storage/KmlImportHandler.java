@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.ChatFormatting;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -59,6 +60,8 @@ public class KmlImportHandler {
     private int currentKmlFileIndex = 0;
     private boolean isProcessingQueue = false;
     private int queueDelayTicks = 0;
+    private java.util.UUID kmlBossBarId = null;
+    private net.minecraft.client.gui.components.LerpingBossEvent kmlBossBarEvent = null;
     private boolean waitingBetweenFiles = false;
 
     public KmlImportHandler(BoshysBTEUtils mod) {
@@ -272,14 +275,7 @@ public class KmlImportHandler {
         waitingBetweenFiles = false;
 
         // Clear the import title/subtitle from screen
-        if (client != null && client.gui != null) {
-            // Set title via command (Mojang mappings compatibility)
-            if (client.player != null) {
-                client.player.connection.sendCommand("title @s times 10 70 20");
-                client.player.connection.sendCommand("title @s title {\"text\":\"\"}");
-                client.player.connection.sendCommand("title @s subtitle {\"text\":\"\"}");
-            }
-        }
+        clearBossBar(client);
 
         // Notify user
         if (client != null && client.player != null) {
@@ -417,7 +413,7 @@ public class KmlImportHandler {
         switch (mode) {
             case AUTOMATIC:
                 // No altitude argument - places at highest non-air block
-                return commandPrefix + " " + point.latitude + ", " + point.longitude;
+                return commandPrefix + " " + point.latitude + "," + point.longitude;
 
             case KML_ALTITUDES:
                 // Use altitude from KML file plus offset
@@ -434,10 +430,10 @@ public class KmlImportHandler {
 
         if (includeAltitude) {
             // Format: /tpll <lat>, <lon> <altitude>
-            return commandPrefix + " " + point.latitude + ", " + point.longitude + " " + altitude;
+            return commandPrefix + " " + point.latitude + "," + point.longitude + " " + altitude;
         }
 
-        return commandPrefix + " " + point.latitude + ", " + point.longitude;
+        return commandPrefix + " " + point.latitude + "," + point.longitude;
     }
 
     public void onMarkerPlaced(Minecraft client) {
@@ -585,12 +581,46 @@ public class KmlImportHandler {
 
     private void showImportTitle(Minecraft client, String title, String subtitle) {
         if (client.player != null) {
-            // Using /title command for Mojang mappings compatibility
-            client.player.connection.sendCommand("title @s times 10 70 20");
-            client.player.connection.sendCommand("title @s title {\"text\":\"" + title + "\"}");
-            client.player.connection.sendCommand("title @s subtitle {\"text\":\"" + subtitle + "\"}");
+            String cleanTitle = stripFormatting(title);
+            String cleanSubtitle = stripFormatting(subtitle);
+            float progress = pendingKmlPoints.isEmpty() ? 1.0f : (float) kmlCurrentPointIndex / pendingKmlPoints.size();
+            net.minecraft.network.chat.Component name = net.minecraft.network.chat.Component.literal(cleanTitle + " - " + cleanSubtitle)
+                    .withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
+
+            if (kmlBossBarId == null) {
+                kmlBossBarId = java.util.UUID.randomUUID();
+                kmlBossBarEvent = new net.minecraft.client.gui.components.LerpingBossEvent(
+                        kmlBossBarId, name, progress,
+                        net.minecraft.world.BossEvent.BossBarColor.RED,
+                        net.minecraft.world.BossEvent.BossBarOverlay.PROGRESS,
+                        false, false, false
+                );
+                net.minecraft.network.protocol.game.ClientboundBossEventPacket.createAddPacket(kmlBossBarEvent)
+                        .handle(client.player.connection);
+            } else {
+                kmlBossBarEvent.setName(name);
+                kmlBossBarEvent.setProgress(progress);
+                net.minecraft.network.protocol.game.ClientboundBossEventPacket.createUpdateNamePacket(kmlBossBarEvent)
+                        .handle(client.player.connection);
+                net.minecraft.network.protocol.game.ClientboundBossEventPacket.createUpdateProgressPacket(kmlBossBarEvent)
+                        .handle(client.player.connection);
+            }
         }
     }
+
+    private void clearBossBar(Minecraft client) {
+        if (kmlBossBarId != null && client.player != null) {
+            net.minecraft.network.protocol.game.ClientboundBossEventPacket.createRemovePacket(kmlBossBarId)
+                    .handle(client.player.connection);
+            kmlBossBarId = null;
+            kmlBossBarEvent = null;
+        }
+    }
+
+    private String stripFormatting(String text) {
+        return text == null ? "" : text.replaceAll("§[0-9a-fk-or]", "");
+    }
+
 
     public int importKmlFile(FabricClientCommandSource source, String filename) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
@@ -662,6 +692,8 @@ public class KmlImportHandler {
         lastCheckedPosition = null;
         isProcessingQueue = false;
         kmlFileQueue.clear();
+        kmlBossBarId = null;
+        kmlBossBarEvent = null;
 
         // FIX: Reset marker connection state to prevent spurious connections
         // between consecutive KML imports
@@ -799,6 +831,8 @@ public class KmlImportHandler {
         cooldownTicks = 0;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
+        kmlBossBarId = null;
+        kmlBossBarEvent = null;
 
         // FIX: Reset marker connection state for each queued file import
         // to prevent spurious connections between files
@@ -830,14 +864,7 @@ public class KmlImportHandler {
         // Single file import - finish completely
         isKmlImporting = false;
 
-        if (client.player != null && client.gui != null) {
-            // Set title via command (Mojang mappings compatibility)
-            if (client.player != null) {
-                client.player.connection.sendCommand("title @s times 10 70 20");
-                client.player.connection.sendCommand("title @s title {\"text\":\"\"}");
-                client.player.connection.sendCommand("title @s subtitle {\"text\":\"\"}");
-            }
-        }
+        clearBossBar(client);
 
         if (client.player != null) {
             // Send advancement-like toast message (simulated via chat for now, but distinct)
@@ -889,14 +916,7 @@ public class KmlImportHandler {
             isKmlImporting = false;
             kmlFileQueue.clear();
 
-            if (client.player != null && client.gui != null) {
-                // Set title via command (Mojang mappings compatibility)
-                if (client.player != null) {
-                    client.player.connection.sendCommand("title @s times 10 70 20");
-                    client.player.connection.sendCommand("title @s title {\"text\":\"\"}");
-                    client.player.connection.sendCommand("title @s subtitle {\"text\":\"\"}");
-                }
-            }
+            clearBossBar(client);
 
             if (client.player != null) {
                 client.player.sendSystemMessage(
@@ -931,6 +951,7 @@ public class KmlImportHandler {
             setupCommands.clear();
         } else {
             // Prepare for next file
+            clearBossBar(client);
             waitingBetweenFiles = true;
             queueDelayTicks = 20; // 1 second delay between files
 
@@ -1003,6 +1024,8 @@ public class KmlImportHandler {
         cooldownTicks = 0;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
+        kmlBossBarId = null;
+        kmlBossBarEvent = null;
 
         // FIX: Reset marker connection state for each queued file import
         BoshysBTEUtils.lastAddedMarker = null;

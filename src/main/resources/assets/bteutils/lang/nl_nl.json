@@ -114,8 +114,8 @@
   "command.boshysbteutils.kml.import.normal": "§aJe kunt Minecraft nu weer normaal gebruiken.",
   "command.boshysbteutils.kml.import.progress": "Punt %d/%d",
   "command.boshysbteutils.kml.import.progress.detailed": "Punt %d/%d§e - %.1f blokken verplaatst",
-  "command.boshysbteutils.kml.import.title.active": "§c§lImport bezig",
-  "command.boshysbteutils.kml.import.subtitle.dont_move": "§eNiet bewegen tot voltooid!",
+  "command.boshysbteutils.kml.import.title.active": "Import bezig",
+  "command.boshysbteutils.kml.import.subtitle.dont_move": "Niet bewegen tot voltooid!",
   "command.boshysbteutils.kml.import.timeout_warning": "§ePunt %d§e time-out (lag gedetecteerd), doorgaan...",
   "command.boshysbteutils.kml.import.in_progress": "§cKML import al bezig! Wacht alstublieft...",
   "command.boshysbteutils.kml.import.no_points": "§cGeen geldige coördinaten gevonden in KML bestand!",
@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Standaardkleur voor cirkelranden in hex-formaat",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Standaard cirkeldekking",
   "command.boshysbteutils.customise.circle.segments": "§aSegmentgrootte van §f%d§a cirkel(s) bijgewerkt naar §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Standaarddekking voor cirkelranden (0,0 tot 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Standaarddekking voor cirkelranden (0,0 tot 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lDISCLAIMER:§r§e De transparantiefunctie voor overlays werkt niet in Minecraft 26.2 en alle overlays zullen een donkere gloed hebben vanwege een renderingprobleem. Sorry!"
 }
