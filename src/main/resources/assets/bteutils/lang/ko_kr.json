@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "원 외곽선의 기본 색상 (Hex 형식)",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "기본 원 불투명도",
   "command.boshysbteutils.customise.circle.segments": "§a§f%d§a개의 원 세그먼트 크기를 §f%.2f§a(으)로 업데이트했습니다!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "원 외곽선의 기본 불투명도 (0.0에서 1.0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "원 외곽선의 기본 불투명도 (0.0에서 1.0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§l면책 조항:§r§e 오버레이의 불투명도 기능은 마인크래프트 26.2에서 작동하지 않으며, 렌더링 문제로 인해 모든 오버레이에 어두운 색조가 들어갑니다. 죄송합니다!"
 }

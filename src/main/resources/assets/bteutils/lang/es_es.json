@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Color predeterminado para contornos de círculos en formato hex",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Opacidad de círculo predeterminada",
   "command.boshysbteutils.customise.circle.segments": "§a¡Tamaño de segmento de §f%d§a círculo(s) actualizado a §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Opacidad predeterminada para contornos de círculos (0,0 a 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Opacidad predeterminada para contornos de círculos (0,0 a 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lDESCARGO DE RESPONSABILIDAD:§r§e La función de opacidad para overlays no funciona en Minecraft 26.2 y todos los overlays tendrán un tinte oscuro debido a un problema de renderizado. ¡Lo sentimos!"
 }

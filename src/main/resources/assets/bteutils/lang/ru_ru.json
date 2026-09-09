@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Цвет по умолчанию для контуров кругов в формате hex",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Непрозрачность круга по умолчанию",
   "command.boshysbteutils.customise.circle.segments": "§aРазмер сегмента §f%d§a круга(ов) обновлён до §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Непрозрачность по умолчанию для контуров кругов (от 0,0 до 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Непрозрачность по умолчанию для контуров кругов (от 0,0 до 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lОТКАЗ ОТ ОТВЕТСТВЕННОСТИ:§r§e Функция прозрачности для оверлеев не работает в Minecraft 26.2, и все оверлеи будут иметь тёмный оттенок из-за проблемы с рендерингом. Извините!"
 }

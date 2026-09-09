@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Standaardkleur voor cirkelranden in hex-formaat",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Standaard cirkeldekking",
   "command.boshysbteutils.customise.circle.segments": "§aSegmentgrootte van §f%d§a cirkel(s) bijgewerkt naar §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Standaarddekking voor cirkelranden (0,0 tot 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Standaarddekking voor cirkelranden (0,0 tot 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lDISCLAIMER:§r§e De transparantiefunctie voor overlays werkt niet in Minecraft 26.2 en alle overlays zullen een donkere gloed hebben vanwege een renderingprobleem. Sorry!"
 }

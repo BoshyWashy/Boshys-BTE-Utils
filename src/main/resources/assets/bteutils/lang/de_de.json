@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Standardfarbe für Kreisumrisse im Hex-Format",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Standard-Kreisdeckkraft",
   "command.boshysbteutils.customise.circle.segments": "§aSegmentgröße von §f%d§a Kreis(en) auf §f%.2f§a aktualisiert!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Standarddeckkraft für Kreisumrisse (0,0 bis 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Standarddeckkraft für Kreisumrisse (0,0 bis 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lHAFTUNGSAUSSCHLUSS:§r§e Die Deckkraft-Funktion für Overlays funktioniert in Minecraft 26.2 nicht und alle Overlays haben aufgrund eines Rendering-Problems einen dunklen Farbstich. Entschuldigung!"
 }

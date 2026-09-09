@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Domyślny kolor dla obrysów okręgów w formacie hex",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Domyślne krycie okręgu",
   "command.boshysbteutils.customise.circle.segments": "§aZaktualizowano rozmiar segmentu §f%d§a okręgu/okręgów do §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Domyślne krycie dla obrysów okręgów (0,0 do 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Domyślne krycie dla obrysów okręgów (0,0 do 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lOSTRZEŻENIE:§r§e Funkcja przezroczystości dla nakładek nie działa w Minecraft 26.2 i wszystkie nakładki będą miały ciemne zabarwienie z powodu problemu z renderowaniem. Przepraszamy!"
 }

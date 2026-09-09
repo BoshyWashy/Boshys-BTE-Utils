@@ -193,6 +193,8 @@ public class OverlayCommands {
 
                             ctx.getSource().sendFeedback(Component.translatable(
                                     "command.boshysbteutils.overlay.loaded", loaded.displayName));
+                            ctx.getSource().sendFeedback(Component.translatable(
+                                    "command.boshysbteutils.overlay.brokenwarning")); // myself
                             return 1;
                         }));
     }
@@ -795,6 +797,8 @@ public class OverlayCommands {
                                     }
                                     ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.opacity_all", count, opacity));
+                                    ctx.getSource().sendFeedback(Component.translatable(
+                                            "command.boshysbteutils.overlay.brokenwarning")); // myself
                                     return count > 0 ? 1 : 0;
                                 })))
                 .then(ClientCommands.argument("name", StringArgumentType.string())
@@ -815,6 +819,8 @@ public class OverlayCommands {
                                     ctx.getSource().sendFeedback(Component.translatable(
                                             "command.boshysbteutils.overlay.opacity_set",
                                             overlay.displayName, opacity));
+                                    ctx.getSource().sendFeedback(Component.translatable(
+                                            "command.boshysbteutils.overlay.brokenwarning")); // myself
                                     return 1;
                                 })));
     }
