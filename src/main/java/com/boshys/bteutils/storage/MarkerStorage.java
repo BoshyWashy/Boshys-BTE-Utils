@@ -1,9 +1,11 @@
 package com.boshys.bteutils.storage;
 
 import com.boshys.bteutils.BoshysBTEUtils;
+import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
 import com.boshys.bteutils.data.MarkerData;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -14,16 +16,15 @@ import net.minecraft.network.chat.Style;
 import net.minecraft.world.phys.Vec3;
 
 import java.io.*;
+import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class MarkerStorage {
     private final BoshysBTEUtils mod;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyyMMdd_HHmmss");
-
     private Path markersSavePath;
     private long lastAutosaveTime = 0;
 
@@ -32,10 +33,8 @@ public class MarkerStorage {
     public final Map<String, MarkerData.SavedMarkerFile> modifiedLoadedFiles = new HashMap<>();
     public final Set<String> hiddenFiles = new HashSet<>();
 
-    // CRITICAL FIX: Track markers by a unique file entry ID that persists across moves
-    // Maps: filename -> (fileEntryIndex -> marker)
+    // Track markers by a unique file entry ID that persists across moves
     public final Map<String, Map<Integer, MarkerData.TeleportMarker>> fileMarkerIndexMap = new HashMap<>();
-    // Maps: marker -> (filename, fileEntryIndex)
     public final Map<MarkerData.TeleportMarker, FileMarkerId> markerToFileId = new HashMap<>();
 
     private int pendingClearCount = 0;
@@ -59,8 +58,9 @@ public class MarkerStorage {
     }
 
     public void updateMarkersSavePath() {
-        if (BoshysBTEUtils.getConfig().savedMarkersFolderPath != null && !BoshysBTEUtils.getConfig().savedMarkersFolderPath.isEmpty()) {
-            markersSavePath = Path.of(BoshysBTEUtils.getConfig().savedMarkersFolderPath);
+        BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+        if (config.savedMarkersFolderPath != null && !config.savedMarkersFolderPath.isEmpty()) {
+            markersSavePath = Path.of(config.savedMarkersFolderPath);
         } else {
             markersSavePath = Path.of("config/boshysbteutils/markers");
         }
@@ -80,10 +80,33 @@ public class MarkerStorage {
     }
 
     public static Path getKmlSavePath() {
-        if (BoshysBTEUtils.getConfig().kmlFolderPath != null && !BoshysBTEUtils.getConfig().kmlFolderPath.isEmpty()) {
-            return Path.of(BoshysBTEUtils.getConfig().kmlFolderPath);
+        BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+        if (config != null && config.kmlFolderPath != null && !config.kmlFolderPath.isEmpty()) {
+            return Path.of(config.kmlFolderPath);
         }
         return getMarkersSavePath();
+    }
+
+    private MarkerData.SavedMarkerFile readMarkerFile(File file, String fallbackName) {
+        try (FileReader reader = new FileReader(file)) {
+            MarkerData.SavedMarkerFile fileData = GSON.fromJson(reader, MarkerData.SavedMarkerFile.class);
+            if (fileData != null && fileData.markers != null) {
+                if (fileData.connections == null) {
+                    fileData.connections = new ArrayList<>();
+                }
+                return fileData;
+            }
+        } catch (Exception ignored) {}
+
+        try (FileReader reader = new FileReader(file)) {
+            Type listType = new TypeToken<List<MarkerData.SavedMarkerData>>(){}.getType();
+            List<MarkerData.SavedMarkerData> legacyMarkers = GSON.fromJson(reader, listType);
+            if (legacyMarkers != null) {
+                return new MarkerData.SavedMarkerFile(fallbackName, file.lastModified(), legacyMarkers, new ArrayList<>());
+            }
+        } catch (Exception ignored) {}
+
+        return null;
     }
 
     public int getCacheMarkerCount() {
@@ -111,7 +134,6 @@ public class MarkerStorage {
                 removedCount[0]++;
                 BoshysBTEUtils.markerOrigins.remove(marker);
                 BoshysBTEUtils.markerOriginalPositions.remove(marker);
-                // CRITICAL FIX: Clean up file ID tracking
                 markerToFileId.remove(marker);
                 return true;
             }
@@ -146,7 +168,6 @@ public class MarkerStorage {
             hiddenFiles.clear();
             BoshysBTEUtils.markerOrigins.clear();
             BoshysBTEUtils.markerOriginalPositions.clear();
-            // CRITICAL FIX: Clear file ID tracking
             fileMarkerIndexMap.clear();
             markerToFileId.clear();
             pendingClearCount = 0;
@@ -174,7 +195,6 @@ public class MarkerStorage {
         return pendingClearCount;
     }
 
-    // Helper method to create position key for matching (since Vec3 doesn't implement equals)
     private String posKey(Vec3 pos) {
         return String.format("%.6f,%.6f,%.6f", pos.x, pos.y, pos.z);
     }
@@ -183,10 +203,9 @@ public class MarkerStorage {
         return String.format("%.6f,%.6f,%.6f", x, y, z);
     }
 
-    // FIXED: Save markers with proper file handling to prevent EOFException
-    // FIXED: Now preserves customised marker and circle settings
     public int saveMarkersToFile(FabricClientCommandSource source, String filename, double radius) {
-        if (!BoshysBTEUtils.getConfig().enableMarkers) {
+        BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+        if (!config.enableMarkers) {
             source.sendError(Component.literal("§cMarkers disabled in config!"));
             return 0;
         }
@@ -217,7 +236,6 @@ public class MarkerStorage {
         List<MarkerData.SavedConnectionData> connectionsToSave = new ArrayList<>();
         List<MarkerData.TeleportMarker> savedCacheMarkers = new ArrayList<>();
 
-        // Build set of positions already saved to ANY file (except autosave)
         Set<String> alreadySavedPositions = new HashSet<>();
         Path savePath = getMarkersSavePath();
         File dir = savePath.toFile();
@@ -225,14 +243,11 @@ public class MarkerStorage {
             File[] existingFiles = dir.listFiles((d, name) -> name.endsWith(".json") && !name.equals("autosave.json") && !name.startsWith("autosave_"));
             if (existingFiles != null) {
                 for (File existingFile : existingFiles) {
-                    try (FileReader reader = new FileReader(existingFile)) {
-                        MarkerData.SavedMarkerFile existingData = GSON.fromJson(reader, MarkerData.SavedMarkerFile.class);
-                        if (existingData != null && existingData.markers != null) {
-                            for (MarkerData.SavedMarkerData data : existingData.markers) {
-                                alreadySavedPositions.add(posKey(data.x, data.y, data.z));
-                            }
+                    MarkerData.SavedMarkerFile existingData = readMarkerFile(existingFile, existingFile.getName());
+                    if (existingData != null && existingData.markers != null) {
+                        for (MarkerData.SavedMarkerData data : existingData.markers) {
+                            alreadySavedPositions.add(posKey(data.x, data.y, data.z));
                         }
-                    } catch (IOException e) {
                     }
                 }
             }
@@ -243,7 +258,6 @@ public class MarkerStorage {
 
         for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
             String origin = BoshysBTEUtils.markerOrigins.get(marker);
-            // Only save cache markers (no origin, autosave, or autosave_ prefix)
             if (origin != null && !origin.equals("autosave") && !origin.startsWith("autosave_")) {
                 continue;
             }
@@ -255,7 +269,6 @@ public class MarkerStorage {
             }
 
             if (radius < 0 || marker.position.distanceTo(playerPos) <= radius) {
-                // FIXED: Save all customised marker settings including circle properties
                 MarkerData.SavedMarkerData savedData = new MarkerData.SavedMarkerData(
                         marker.position.x, marker.position.y, marker.position.z,
                         marker.colour, marker.scale, marker.opacity,
@@ -277,7 +290,6 @@ public class MarkerStorage {
             Integer idx1 = markerIndexMap.get(conn.marker1);
             Integer idx2 = markerIndexMap.get(conn.marker2);
             if (idx1 != null && idx2 != null) {
-                // FIXED: Save connection with customised line properties
                 connectionsToSave.add(new MarkerData.SavedConnectionData(
                         idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
                 ));
@@ -288,23 +300,20 @@ public class MarkerStorage {
 
         File file = getMarkersSavePath().resolve(filename + ".json").toFile();
 
-        // FIXED: Use try-with-resources properly to ensure file is fully written
         try (FileWriter writer = new FileWriter(file)) {
             GSON.toJson(fileData, writer);
-            writer.flush(); // Explicitly flush to ensure all data is written
+            writer.flush();
         } catch (IOException e) {
             source.sendError(Component.literal("§cFailed to save markers: " + e.getMessage()));
             return 0;
         }
 
-        // Only remove markers and load file if save was successful
         for (MarkerData.TeleportMarker savedMarker : savedCacheMarkers) {
             BoshysBTEUtils.markers.remove(savedMarker);
             BoshysBTEUtils.markerOrigins.remove(savedMarker);
             BoshysBTEUtils.markerOriginalPositions.remove(savedMarker);
         }
 
-        // Remove connections that involved removed markers
         BoshysBTEUtils.markerConnections.removeIf(conn ->
                 !BoshysBTEUtils.markers.contains(conn.marker1) || !BoshysBTEUtils.markers.contains(conn.marker2));
         BoshysBTEUtils.selectedMarkers.removeIf(marker -> !BoshysBTEUtils.markers.contains(marker));
@@ -312,8 +321,7 @@ public class MarkerStorage {
             BoshysBTEUtils.lastAddedMarker = null;
         }
 
-        // Load the file we just saved
-        boolean loadSuccess = loadMarkerFileInternal(filename, true);
+        loadMarkerFileInternal(filename, true);
 
         Component message = Component.literal("§aSaved " + markersToSave.size() + " markers to '")
                 .append(Component.literal(filename).withStyle(Style.EMPTY.withBold(true)))
@@ -327,12 +335,9 @@ public class MarkerStorage {
         return 1;
     }
 
-    // CRITICAL FIX: Completely rewritten updateMarkerFile to properly handle moved markers
-    // FIXED: Now preserves and updates all customised marker and connection settings
     public int updateMarkerFile(FabricClientCommandSource source, String filename, double radius) {
         filename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
 
-        // Check if file is loaded first - if not, we can't update it
         if (!loadedFiles.containsKey(filename)) {
             source.sendError(Component.literal("§cFile '" + filename + "' is not loaded! You must load it first with /boshys-bt-utils load " + filename));
             return 0;
@@ -345,279 +350,255 @@ public class MarkerStorage {
             return 0;
         }
 
-        try (FileReader reader = new FileReader(file)) {
-            MarkerData.SavedMarkerFile existingData = GSON.fromJson(reader, MarkerData.SavedMarkerFile.class);
-            if (existingData == null) {
-                existingData = new MarkerData.SavedMarkerFile(filename, System.currentTimeMillis(), new ArrayList<>(), new ArrayList<>());
-            }
-            if (existingData.markers == null) {
-                existingData.markers = new ArrayList<>();
-            }
-            if (existingData.connections == null) {
-                existingData.connections = new ArrayList<>();
-            }
+        MarkerData.SavedMarkerFile existingData = readMarkerFile(file, filename);
+        if (existingData == null) {
+            existingData = new MarkerData.SavedMarkerFile(filename, System.currentTimeMillis(), new ArrayList<>(), new ArrayList<>());
+        }
+        if (existingData.markers == null) {
+            existingData.markers = new ArrayList<>();
+        }
+        if (existingData.connections == null) {
+            existingData.connections = new ArrayList<>();
+        }
 
-            LocalPlayer player = source.getPlayer();
-            Vec3 playerPos = new Vec3(player.getX(), player.getY(), player.getZ());
+        LocalPlayer player = source.getPlayer();
+        Vec3 playerPos = new Vec3(player.getX(), player.getY(), player.getZ());
 
-            // CRITICAL FIX: Build a map from file entry index to current marker using persistent ID tracking
-            Map<Integer, MarkerData.TeleportMarker> indexToMarker = new HashMap<>();
+        Map<Integer, MarkerData.TeleportMarker> indexToMarker = new HashMap<>();
 
-            // First, try to use the persistent file ID mapping
-            Map<Integer, MarkerData.TeleportMarker> fileIndexMap = fileMarkerIndexMap.get(filename);
-            if (fileIndexMap != null) {
-                for (Map.Entry<Integer, MarkerData.TeleportMarker> entry : fileIndexMap.entrySet()) {
-                    MarkerData.TeleportMarker marker = entry.getValue();
-                    // Only include if marker still exists and belongs to this file
-                    if (BoshysBTEUtils.markers.contains(marker)) {
-                        String origin = BoshysBTEUtils.markerOrigins.get(marker);
-                        if (filename.equals(origin)) {
-                            indexToMarker.put(entry.getKey(), marker);
-                        }
+        Map<Integer, MarkerData.TeleportMarker> fileIndexMap = fileMarkerIndexMap.get(filename);
+        if (fileIndexMap != null) {
+            for (Map.Entry<Integer, MarkerData.TeleportMarker> entry : fileIndexMap.entrySet()) {
+                MarkerData.TeleportMarker marker = entry.getValue();
+                if (BoshysBTEUtils.markers.contains(marker)) {
+                    String origin = BoshysBTEUtils.markerOrigins.get(marker);
+                    if (filename.equals(origin)) {
+                        indexToMarker.put(entry.getKey(), marker);
                     }
                 }
             }
+        }
 
-            // Fallback: Try to match by original position for backwards compatibility
-            if (indexToMarker.isEmpty()) {
-                for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
-                    String origin = BoshysBTEUtils.markerOrigins.get(marker);
-                    if (filename.equals(origin)) {
-                        Vec3 originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
-                        if (originalPos != null) {
-                            // Find which index this corresponds to in the file
-                            for (int i = 0; i < existingData.markers.size(); i++) {
-                                MarkerData.SavedMarkerData data = existingData.markers.get(i);
-                                String dataPosKey = posKey(data.x, data.y, data.z);
-                                String markerPosKey = posKey(originalPos);
-                                if (dataPosKey.equals(markerPosKey)) {
-                                    indexToMarker.put(i, marker);
-                                    // Update the persistent mapping
-                                    fileMarkerIndexMap.computeIfAbsent(filename, k -> new HashMap<>()).put(i, marker);
-                                    markerToFileId.put(marker, new FileMarkerId(filename, i));
-                                    break;
-                                }
+        if (indexToMarker.isEmpty()) {
+            for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+                String origin = BoshysBTEUtils.markerOrigins.get(marker);
+                if (filename.equals(origin)) {
+                    Vec3 originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
+                    if (originalPos != null) {
+                        for (int i = 0; i < existingData.markers.size(); i++) {
+                            MarkerData.SavedMarkerData data = existingData.markers.get(i);
+                            String dataPosKey = posKey(data.x, data.y, data.z);
+                            String markerPosKey = posKey(originalPos);
+                            if (dataPosKey.equals(markerPosKey)) {
+                                indexToMarker.put(i, marker);
+                                fileMarkerIndexMap.computeIfAbsent(filename, k -> new HashMap<>()).put(i, marker);
+                                markerToFileId.put(marker, new FileMarkerId(filename, i));
+                                break;
                             }
                         }
                     }
                 }
             }
+        }
 
-            List<MarkerData.SavedMarkerData> newMarkersList = new ArrayList<>();
-            List<MarkerData.SavedConnectionData> newConnectionsList = new ArrayList<>();
+        List<MarkerData.SavedMarkerData> newMarkersList = new ArrayList<>();
+        List<MarkerData.SavedConnectionData> newConnectionsList = new ArrayList<>();
 
-            Map<Integer, Integer> indexRemap = new HashMap<>();
+        Map<Integer, Integer> indexRemap = new HashMap<>();
 
-            int newIndex = 0;
-            int preservedCount = 0;
-            int updatedCount = 0;
-            int removedCount = 0;
+        int newIndex = 0;
+        int preservedCount = 0;
+        int updatedCount = 0;
+        int removedCount = 0;
 
-            // Process existing markers from file - match them to current markers by persistent ID
-            for (int i = 0; i < existingData.markers.size(); i++) {
-                MarkerData.TeleportMarker currentMarker = indexToMarker.get(i);
+        for (int i = 0; i < existingData.markers.size(); i++) {
+            MarkerData.TeleportMarker currentMarker = indexToMarker.get(i);
 
-                if (currentMarker == null) {
-                    // Marker was deleted - don't include in updated file
-                    removedCount++;
-                    continue;
-                }
-
-                // Create new saved data with CURRENT position and CURRENT customised settings
-                // FIXED: Preserve all customised settings (colour, scale, opacity, circle properties)
-                MarkerData.SavedMarkerData oldData = existingData.markers.get(i);
-                MarkerData.SavedMarkerData newData = new MarkerData.SavedMarkerData(
-                        currentMarker.position.x, currentMarker.position.y, currentMarker.position.z,
-                        currentMarker.colour, currentMarker.scale, currentMarker.opacity,
-                        currentMarker.circleRadius, currentMarker.circleColour, currentMarker.circleOpacity, currentMarker.circleThickness, currentMarker.circleSegmentPercent
-                );
-
-                // Check if marker was modified (moved or design changed)
-                boolean wasModified = currentMarker.colour != oldData.colour ||
-                        currentMarker.scale != oldData.scale ||
-                        currentMarker.opacity != oldData.opacity ||
-                        currentMarker.circleRadius != oldData.circleRadius ||
-                        currentMarker.circleColour != oldData.circleColour ||
-                        currentMarker.circleOpacity != oldData.circleOpacity ||
-                        currentMarker.circleThickness != oldData.circleThickness ||
-                        currentMarker.circleSegmentPercent != oldData.circleSegmentPercent ||
-                        Math.abs(currentMarker.position.x - oldData.x) > 0.0001 ||
-                        Math.abs(currentMarker.position.y - oldData.y) > 0.0001 ||
-                        Math.abs(currentMarker.position.z - oldData.z) > 0.0001;
-
-                if (wasModified) {
-                    updatedCount++;
-                } else {
-                    preservedCount++;
-                }
-
-                newMarkersList.add(newData);
-                indexRemap.put(i, newIndex);
-                newIndex++;
-
-                // CRITICAL FIX: Update the persistent ID mapping
-                fileMarkerIndexMap.computeIfAbsent(filename, k -> new HashMap<>()).put(newIndex - 1, currentMarker);
-                markerToFileId.put(currentMarker, new FileMarkerId(filename, newIndex - 1));
-                // Also update original position tracking
-                BoshysBTEUtils.markerOriginalPositions.put(currentMarker, new Vec3(currentMarker.position.x, currentMarker.position.y, currentMarker.position.z));
+            if (currentMarker == null) {
+                removedCount++;
+                continue;
             }
 
-            // Add new cache markers to the file (markers without file origin or autosave markers)
-            int addedCount = 0;
-            List<MarkerData.TeleportMarker> newlyAddedMarkers = new ArrayList<>();
+            MarkerData.SavedMarkerData oldData = existingData.markers.get(i);
+            MarkerData.SavedMarkerData newData = new MarkerData.SavedMarkerData(
+                    currentMarker.position.x, currentMarker.position.y, currentMarker.position.z,
+                    currentMarker.colour, currentMarker.scale, currentMarker.opacity,
+                    currentMarker.circleRadius, currentMarker.circleColour, currentMarker.circleOpacity, currentMarker.circleThickness, currentMarker.circleSegmentPercent
+            );
 
-            for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
-                String origin = BoshysBTEUtils.markerOrigins.get(marker);
-                // Only process cache markers (no origin, autosave, or autosave_ prefix)
-                if (origin != null && !origin.equals("autosave") && !origin.startsWith("autosave_")) {
-                    continue;
-                }
+            boolean wasModified = currentMarker.colour != oldData.colour ||
+                    currentMarker.scale != oldData.scale ||
+                    currentMarker.opacity != oldData.opacity ||
+                    currentMarker.circleRadius != oldData.circleRadius ||
+                    currentMarker.circleColour != oldData.circleColour ||
+                    currentMarker.circleOpacity != oldData.circleOpacity ||
+                    currentMarker.circleThickness != oldData.circleThickness ||
+                    currentMarker.circleSegmentPercent != oldData.circleSegmentPercent ||
+                    Math.abs(currentMarker.position.x - oldData.x) > 0.0001 ||
+                    Math.abs(currentMarker.position.y - oldData.y) > 0.0001 ||
+                    Math.abs(currentMarker.position.z - oldData.z) > 0.0001;
 
-                // Check if this marker is already tracked in the file
-                boolean alreadyInFile = indexToMarker.values().contains(marker);
-
-                if (alreadyInFile) {
-                    continue;
-                }
-
-                // Check radius if specified
-                if (radius >= 0 && marker.position.distanceTo(playerPos) > radius) {
-                    continue;
-                }
-
-                // Check for duplicate positions
-                boolean positionExists = false;
-                String markerPosKey = posKey(marker.position);
-                for (MarkerData.SavedMarkerData existing : newMarkersList) {
-                    String existingPosKey = posKey(existing.x, existing.y, existing.z);
-                    if (markerPosKey.equals(existingPosKey)) {
-                        positionExists = true;
-                        break;
-                    }
-                }
-
-                if (positionExists) {
-                    continue;
-                }
-
-                // Add new marker to file with all customised settings
-                // FIXED: Preserve all customised settings including circle properties
-                MarkerData.SavedMarkerData newData = new MarkerData.SavedMarkerData(
-                        marker.position.x, marker.position.y, marker.position.z,
-                        marker.colour, marker.scale, marker.opacity,
-                        marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
-                );
-                newMarkersList.add(newData);
-
-                // CRITICAL FIX: Assign this marker to the file and track its position
-                BoshysBTEUtils.markerOrigins.put(marker, filename);
-                BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(marker.position.x, marker.position.y, marker.position.z));
-                newlyAddedMarkers.add(marker);
-
-                // Update persistent ID mapping
-                int newMarkerIndex = newIndex;
-                fileMarkerIndexMap.computeIfAbsent(filename, k -> new HashMap<>()).put(newMarkerIndex, marker);
-                markerToFileId.put(marker, new FileMarkerId(filename, newMarkerIndex));
-
-                newIndex++;
-                addedCount++;
+            if (wasModified) {
+                updatedCount++;
+            } else {
+                preservedCount++;
             }
 
-            // Build final index map for connection remapping
-            Map<MarkerData.TeleportMarker, Integer> finalIndexMap = new HashMap<>();
+            newMarkersList.add(newData);
+            indexRemap.put(i, newIndex);
+            newIndex++;
 
-            // Rebuild index map based on new markers list
-            for (int newIdx = 0; newIdx < newMarkersList.size(); newIdx++) {
-                // Find which marker corresponds to this new index
-                for (Map.Entry<MarkerData.TeleportMarker, FileMarkerId> entry : markerToFileId.entrySet()) {
-                    if (entry.getValue().filename.equals(filename) && entry.getValue().index == newIdx) {
-                        finalIndexMap.put(entry.getKey(), newIdx);
-                        break;
-                    }
+            fileMarkerIndexMap.computeIfAbsent(filename, k -> new HashMap<>()).put(newIndex - 1, currentMarker);
+            markerToFileId.put(currentMarker, new FileMarkerId(filename, newIndex - 1));
+            BoshysBTEUtils.markerOriginalPositions.put(currentMarker, new Vec3(currentMarker.position.x, currentMarker.position.y, currentMarker.position.z));
+        }
+
+        int addedCount = 0;
+        List<MarkerData.TeleportMarker> newlyAddedMarkers = new ArrayList<>();
+
+        for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+            String origin = BoshysBTEUtils.markerOrigins.get(marker);
+            if (origin != null && !origin.equals("autosave") && !origin.startsWith("autosave_")) {
+                continue;
+            }
+
+            boolean alreadyInFile = indexToMarker.values().contains(marker);
+
+            if (alreadyInFile) {
+                continue;
+            }
+
+            if (radius >= 0 && marker.position.distanceTo(playerPos) > radius) {
+                continue;
+            }
+
+            boolean positionExists = false;
+            String markerPosKey = posKey(marker.position);
+            for (MarkerData.SavedMarkerData existing : newMarkersList) {
+                String existingPosKey = posKey(existing.x, existing.y, existing.z);
+                if (markerPosKey.equals(existingPosKey)) {
+                    positionExists = true;
+                    break;
                 }
             }
 
-            // Remap connections - preserve existing connections that still exist with their customised settings
-            Set<String> addedConnections = new HashSet<>();
+            if (positionExists) {
+                continue;
+            }
 
-            for (MarkerData.SavedConnectionData oldConn : existingData.connections) {
-                Integer newFrom = indexRemap.get(oldConn.fromIndex);
-                Integer newTo = indexRemap.get(oldConn.toIndex);
+            MarkerData.SavedMarkerData newData = new MarkerData.SavedMarkerData(
+                    marker.position.x, marker.position.y, marker.position.z,
+                    marker.colour, marker.scale, marker.opacity,
+                    marker.circleRadius, marker.circleColour, marker.circleOpacity, marker.circleThickness, marker.circleSegmentPercent
+            );
+            newMarkersList.add(newData);
 
-                if (newFrom != null && newTo != null && !newFrom.equals(newTo)) {
-                    String connKey = newFrom < newTo ? newFrom + ":" + newTo : newTo + ":" + newFrom;
-                    if (!addedConnections.contains(connKey)) {
-                        // FIXED: Preserve connection line customisations when remapping
-                        newConnectionsList.add(new MarkerData.SavedConnectionData(
-                                newFrom, newTo, oldConn.lineColour, oldConn.lineOpacity, oldConn.lineThickness
-                        ));
-                        addedConnections.add(connKey);
-                    }
+            BoshysBTEUtils.markerOrigins.put(marker, filename);
+            BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(marker.position.x, marker.position.y, marker.position.z));
+            newlyAddedMarkers.add(marker);
+
+            int newMarkerIndex = newIndex;
+            fileMarkerIndexMap.computeIfAbsent(filename, k -> new HashMap<>()).put(newMarkerIndex, marker);
+            markerToFileId.put(marker, new FileMarkerId(filename, newMarkerIndex));
+
+            newIndex++;
+            addedCount++;
+        }
+
+        Map<MarkerData.TeleportMarker, Integer> finalIndexMap = new HashMap<>();
+
+        for (int newIdx = 0; newIdx < newMarkersList.size(); newIdx++) {
+            for (Map.Entry<MarkerData.TeleportMarker, FileMarkerId> entry : markerToFileId.entrySet()) {
+                if (entry.getValue().filename.equals(filename) && entry.getValue().index == newIdx) {
+                    finalIndexMap.put(entry.getKey(), newIdx);
+                    break;
                 }
             }
+        }
 
-            // Add current connections between markers in this file
-            for (MarkerData.MarkerConnection conn : BoshysBTEUtils.markerConnections) {
-                Integer idx1 = finalIndexMap.get(conn.marker1);
-                Integer idx2 = finalIndexMap.get(conn.marker2);
+        Set<String> addedConnections = new HashSet<>();
 
-                if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
-                    String connKey = idx1 < idx2 ? idx1 + ":" + idx2 : idx2 + ":" + idx1;
-                    if (!addedConnections.contains(connKey)) {
-                        // FIXED: Save connection with customised line properties
-                        newConnectionsList.add(new MarkerData.SavedConnectionData(
-                                idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
-                        ));
-                        addedConnections.add(connKey);
-                    }
+        // Synchronize in-memory line settings to existing file connections, then process surviving connections
+        for (MarkerData.SavedConnectionData oldConn : existingData.connections) {
+            Integer newFrom = indexRemap.get(oldConn.fromIndex);
+            Integer newTo = indexRemap.get(oldConn.toIndex);
+
+            if (newFrom != null && newTo != null && !newFrom.equals(newTo)) {
+                String connKey = newFrom < newTo ? newFrom + ":" + newTo : newTo + ":" + newFrom;
+                if (!addedConnections.contains(connKey)) {
+                    // Look up corresponding live connection to sync current in-memory settings
+                    MarkerData.TeleportMarker m1 = indexToMarker.get(oldConn.fromIndex);
+                    MarkerData.TeleportMarker m2 = indexToMarker.get(oldConn.toIndex);
+                    MarkerData.MarkerConnection liveConn = (m1 != null && m2 != null) ? MarkerData.getConnection(m1, m2) : null;
+
+                    int lineColour = liveConn != null ? liveConn.lineColour : oldConn.lineColour;
+                    float lineOpacity = liveConn != null ? liveConn.lineOpacity : oldConn.lineOpacity;
+                    float lineThickness = liveConn != null ? liveConn.lineThickness : oldConn.lineThickness;
+
+                    newConnectionsList.add(new MarkerData.SavedConnectionData(
+                            newFrom, newTo, lineColour, lineOpacity, lineThickness
+                    ));
+                    addedConnections.add(connKey);
                 }
             }
+        }
 
-            // Update file data
-            existingData.markers = newMarkersList;
-            existingData.connections = newConnectionsList;
-            existingData.lastModified = System.currentTimeMillis();
+        // Add any newly created or external connections involving updated markers
+        for (MarkerData.MarkerConnection conn : BoshysBTEUtils.markerConnections) {
+            Integer idx1 = finalIndexMap.get(conn.marker1);
+            Integer idx2 = finalIndexMap.get(conn.marker2);
 
-            // Write updated file
-            try (FileWriter writer = new FileWriter(file)) {
-                GSON.toJson(existingData, writer);
-                writer.flush();
+            if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
+                String connKey = idx1 < idx2 ? idx1 + ":" + idx2 : idx2 + ":" + idx1;
+                if (!addedConnections.contains(connKey)) {
+                    newConnectionsList.add(new MarkerData.SavedConnectionData(
+                            idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
+                    ));
+                    addedConnections.add(connKey);
+                }
             }
+        }
 
-            // Update the loaded file data in memory
-            loadedFiles.put(filename, existingData);
-            modifiedLoadedFiles.remove(filename);
+        existingData.markers = newMarkersList;
+        existingData.connections = newConnectionsList;
+        existingData.lastModified = System.currentTimeMillis();
 
-            StringBuilder msg = new StringBuilder();
-            msg.append("§aUpdated '").append(filename).append("'!");
-            if (preservedCount > 0) msg.append(" Preserved: ").append(preservedCount);
-            if (updatedCount > 0) msg.append(" Updated: ").append(updatedCount);
-            if (removedCount > 0) msg.append(" Removed: ").append(removedCount);
-            if (addedCount > 0) msg.append(" Added: ").append(addedCount);
-            msg.append(". Total: ").append(newMarkersList.size());
-
-            Component message = Component.literal(msg.toString())
-                    .withStyle(style -> style
-                            .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
-                            .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
-                    );
-
-            source.sendFeedback(message);
-            return 1;
+        try (FileWriter writer = new FileWriter(file)) {
+            GSON.toJson(existingData, writer);
+            writer.flush();
         } catch (IOException e) {
             source.sendError(Component.literal("§cFailed to update file: " + e.getMessage()));
             return 0;
         }
+
+        loadedFiles.put(filename, existingData);
+        modifiedLoadedFiles.remove(filename);
+
+        StringBuilder msg = new StringBuilder();
+        msg.append("§aUpdated '").append(filename).append("'!");
+        if (preservedCount > 0) msg.append(" Preserved: ").append(preservedCount);
+        if (updatedCount > 0) msg.append(" Updated: ").append(updatedCount);
+        if (removedCount > 0) msg.append(" Removed: ").append(removedCount);
+        if (addedCount > 0) msg.append(" Added: ").append(addedCount);
+        msg.append(". Total: ").append(newMarkersList.size());
+
+        Component message = Component.literal(msg.toString())
+                .withStyle(style -> style
+                        .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
+                );
+
+        source.sendFeedback(message);
+        return 1;
     }
 
     public int loadMarkerFile(FabricClientCommandSource source, String filename) {
         return loadMarkerFileInternal(filename, false) ? 1 : 0;
     }
 
-    // FIXED: Improved loadMarkerFileInternal with better error handling and persistent ID tracking
-    // FIXED: Now loads all customised marker and connection settings from file
     public boolean loadMarkerFileInternal(String filename, boolean silent) {
-        if (!BoshysBTEUtils.getConfig().enableMarkers) {
+        BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+        if (!config.enableMarkers) {
             if (!silent) {
                 Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cMarkers disabled in config!"));
             }
@@ -634,7 +615,6 @@ public class MarkerStorage {
             return false;
         }
 
-        // Check if file is empty
         if (file.length() == 0) {
             if (!silent) {
                 Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cFile '" + filename + "' is empty!"));
@@ -642,102 +622,134 @@ public class MarkerStorage {
             return false;
         }
 
-        try (FileReader reader = new FileReader(file)) {
-            MarkerData.SavedMarkerFile fileData = GSON.fromJson(reader, MarkerData.SavedMarkerFile.class);
-            if (fileData == null || fileData.markers == null) {
-                if (!silent) {
-                    Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cInvalid file format!"));
-                }
-                return false;
-            }
-
-            hiddenFiles.remove(filename);
-
-            int loadedCount = 0;
-            List<MarkerData.TeleportMarker> loadedMarkers = new ArrayList<>();
-
-            // CRITICAL FIX: Initialize persistent ID tracking for this file
-            Map<Integer, MarkerData.TeleportMarker> indexMap = new HashMap<>();
-
-            boolean isAutosave = filename.equals("autosave") || filename.startsWith("autosave_");
-
-            for (int i = 0; i < fileData.markers.size(); i++) {
-                MarkerData.SavedMarkerData data = fileData.markers.get(i);
-                // FIXED: Load all customised marker settings from file
-                MarkerData.TeleportMarker marker = new MarkerData.TeleportMarker(
-                        new Vec3(data.x, data.y, data.z),
-                        data.colour, data.scale, data.opacity
-                );
-                // FIXED: Load circle customisations from file (backward compatible - defaults if not present)
-                marker.circleRadius = data.circleRadius;
-                marker.circleColour = data.circleColour;
-                marker.circleOpacity = data.circleOpacity;
-                marker.circleThickness = data.circleThickness;
-                marker.circleSegmentPercent = data.circleSegmentPercent;
-
-                BoshysBTEUtils.markers.add(marker);
-                loadedMarkers.add(marker);
-                loadedCount++;
-
-                if (!isAutosave) {
-                    BoshysBTEUtils.markerOrigins.put(marker, filename);
-                    // CRITICAL: Store the original position from file
-                    BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(data.x, data.y, data.z));
-                    // CRITICAL FIX: Set up persistent ID tracking
-                    indexMap.put(i, marker);
-                    markerToFileId.put(marker, new FileMarkerId(filename, i));
-                }
-            }
-
-            // Store the index map for this file
-            if (!isAutosave) {
-                fileMarkerIndexMap.put(filename, indexMap);
-            }
-
-            int loadedConnections = 0;
-            if (fileData.connections != null) {
-                for (MarkerData.SavedConnectionData connData : fileData.connections) {
-                    if (connData.fromIndex >= 0 && connData.fromIndex < loadedMarkers.size() &&
-                            connData.toIndex >= 0 && connData.toIndex < loadedMarkers.size()) {
-                        // FIXED: Load connection with customised line properties from file
-                        MarkerData.MarkerConnection conn = MarkerData.connectMarkers(
-                                loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex)
-                        );
-                        // FIXED: Apply saved line customisations (backward compatible - defaults if not present)
-                        conn.lineColour = connData.lineColour;
-                        conn.lineOpacity = connData.lineOpacity;
-                        conn.lineThickness = connData.lineThickness;
-                        loadedConnections++;
-                    }
-                }
-            }
-
-            if (!isAutosave) {
-                loadedFiles.put(filename, fileData);
-                modifiedLoadedFiles.remove(filename);
-            }
-
+        MarkerData.SavedMarkerFile fileData = readMarkerFile(file, filename);
+        if (fileData == null || fileData.markers == null) {
             if (!silent) {
-                Component message = Component.literal("§aLoaded " + loadedCount + " markers")
-                        .append(loadedConnections > 0 ? Component.literal(" with " + loadedConnections + " connections") : Component.literal(""))
-                        .append(Component.literal(" from '"))
-                        .append(Component.literal(filename).withStyle(Style.EMPTY.withBold(true)))
-                        .append(Component.literal("'!"))
-                        .append(isAutosave ? Component.literal(" (as cache markers)") : Component.literal(""))
-                        .withStyle(style -> style
-                                .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
-                                .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
-                        );
-
-                Minecraft.getInstance().player.sendSystemMessage(message);
-            }
-            return true;
-        } catch (Exception e) {
-            if (!silent) {
-                Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cFailed to load file '" + filename + "': " + e.getMessage()));
+                Minecraft.getInstance().player.sendSystemMessage(Component.literal("§cInvalid file format!"));
             }
             return false;
         }
+
+        // Check and migrate legacy/missing connection line properties in the file
+        boolean needsSaveAndReload = false;
+
+        // Auto-reconstruct sequential connections if none exist
+        if ((fileData.connections == null || fileData.connections.isEmpty()) && fileData.markers.size() > 1) {
+            if (fileData.connections == null) {
+                fileData.connections = new ArrayList<>();
+            }
+            for (int i = 0; i < fileData.markers.size() - 1; i++) {
+                fileData.connections.add(new MarkerData.SavedConnectionData(
+                        i, i + 1,
+                        config.lineColour,
+                        config.lineOpacity,
+                        config.lineThickness
+                ));
+            }
+            needsSaveAndReload = true;
+        } else if (fileData.connections != null) {
+            for (MarkerData.SavedConnectionData connData : fileData.connections) {
+                if (connData.lineColour <= 0) {
+                    connData.lineColour = config.lineColour;
+                    needsSaveAndReload = true;
+                }
+                if (connData.lineOpacity <= 0f) {
+                    connData.lineOpacity = config.lineOpacity;
+                    needsSaveAndReload = true;
+                }
+                if (connData.lineThickness <= 0f) {
+                    connData.lineThickness = config.lineThickness;
+                    needsSaveAndReload = true;
+                }
+            }
+        }
+
+        if (needsSaveAndReload) {
+            fileData.lastModified = System.currentTimeMillis();
+            try (FileWriter writer = new FileWriter(file)) {
+                GSON.toJson(fileData, writer);
+                writer.flush();
+            } catch (IOException ignored) {}
+        }
+
+        hiddenFiles.remove(filename);
+
+        int loadedCount = 0;
+        List<MarkerData.TeleportMarker> loadedMarkers = new ArrayList<>();
+
+        Map<Integer, MarkerData.TeleportMarker> indexMap = new HashMap<>();
+
+        boolean isAutosave = filename.equals("autosave") || filename.startsWith("autosave_");
+
+        for (int i = 0; i < fileData.markers.size(); i++) {
+            MarkerData.SavedMarkerData data = fileData.markers.get(i);
+            MarkerData.TeleportMarker marker = new MarkerData.TeleportMarker(
+                    new Vec3(data.x, data.y, data.z),
+                    data.colour, data.scale, data.opacity
+            );
+            marker.circleRadius = data.circleRadius;
+            marker.circleColour = data.circleColour;
+            marker.circleOpacity = data.circleOpacity;
+            marker.circleThickness = data.circleThickness;
+            marker.circleSegmentPercent = data.circleSegmentPercent;
+
+            BoshysBTEUtils.markers.add(marker);
+            loadedMarkers.add(marker);
+            loadedCount++;
+
+            if (!isAutosave) {
+                BoshysBTEUtils.markerOrigins.put(marker, filename);
+                BoshysBTEUtils.markerOriginalPositions.put(marker, new Vec3(data.x, data.y, data.z));
+                indexMap.put(i, marker);
+                markerToFileId.put(marker, new FileMarkerId(filename, i));
+            }
+        }
+
+        if (!isAutosave) {
+            fileMarkerIndexMap.put(filename, indexMap);
+        }
+
+        int loadedConnections = 0;
+
+        if (fileData.connections != null) {
+            for (MarkerData.SavedConnectionData connData : fileData.connections) {
+                if (connData.fromIndex >= 0 && connData.fromIndex < loadedMarkers.size() &&
+                        connData.toIndex >= 0 && connData.toIndex < loadedMarkers.size()) {
+                    MarkerData.MarkerConnection conn = MarkerData.connectMarkers(
+                            loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex)
+                    );
+
+                    if (conn != null) {
+                        conn.lineColour = connData.lineColour > 0 ? connData.lineColour : config.lineColour;
+                        conn.lineOpacity = connData.lineOpacity > 0f ? connData.lineOpacity : config.lineOpacity;
+                        conn.lineThickness = connData.lineThickness > 0f ? connData.lineThickness : config.lineThickness;
+                    }
+
+                    loadedConnections++;
+                }
+            }
+        }
+
+        if (!isAutosave) {
+            loadedFiles.put(filename, fileData);
+            modifiedLoadedFiles.remove(filename);
+        }
+
+        if (!silent) {
+            Component message = Component.literal("§aLoaded " + loadedCount + " markers")
+                    .append(loadedConnections > 0 ? Component.literal(" with " + loadedConnections + " connections") : Component.literal(""))
+                    .append(Component.literal(" from '"))
+                    .append(Component.literal(filename).withStyle(Style.EMPTY.withBold(true)))
+                    .append(Component.literal("'!"))
+                    .append(isAutosave ? Component.literal(" (as cache markers)") : Component.literal(""))
+                    .withStyle(style -> style
+                            .withClickEvent(new ClickEvent.OpenFile(file.getParentFile().getAbsolutePath()))
+                            .withHoverEvent(new HoverEvent.ShowText(Component.literal("§eClick to open folder")))
+                    );
+
+            Minecraft.getInstance().player.sendSystemMessage(message);
+        }
+        return true;
     }
 
     public int hideMarkerFile(FabricClientCommandSource source, String filename) {
@@ -747,8 +759,6 @@ public class MarkerStorage {
             source.sendError(Component.literal("§cFile '" + finalFilename + "' is not currently loaded!"));
             return 0;
         }
-
-        MarkerData.SavedMarkerFile fileData = loadedFiles.get(finalFilename);
 
         Set<MarkerData.TeleportMarker> protectedMarkers = new HashSet<>();
         for (Map.Entry<String, MarkerData.SavedMarkerFile> entry : loadedFiles.entrySet()) {
@@ -760,7 +770,6 @@ public class MarkerStorage {
                 for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                     String markerOrigin = BoshysBTEUtils.markerOrigins.get(marker);
                     if (otherFilename.equals(markerOrigin)) {
-                        // CRITICAL FIX: Use position key for comparison
                         Vec3 markerOriginalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
                         if (markerOriginalPos != null) {
                             String markerPosKey = posKey(markerOriginalPos);
@@ -806,7 +815,6 @@ public class MarkerStorage {
                 removedCount[0]++;
                 BoshysBTEUtils.markerOrigins.remove(marker);
                 BoshysBTEUtils.markerOriginalPositions.remove(marker);
-                // CRITICAL FIX: Clean up file ID tracking
                 markerToFileId.remove(marker);
                 return true;
             }
@@ -816,7 +824,6 @@ public class MarkerStorage {
         BoshysBTEUtils.markerConnections.removeIf(conn -> !BoshysBTEUtils.markers.contains(conn.marker1) || !BoshysBTEUtils.markers.contains(conn.marker2));
         BoshysBTEUtils.selectedMarkers.removeIf(marker -> !BoshysBTEUtils.markers.contains(marker));
 
-        // CRITICAL FIX: Clean up file ID tracking for this file
         fileMarkerIndexMap.remove(finalFilename);
 
         loadedFiles.remove(finalFilename);
@@ -867,10 +874,9 @@ public class MarkerStorage {
         }
     }
 
-    // FIXED: mergeMarkerFiles now properly removes old markers, cleans origins, and deletes old files
-    // FIXED: Now preserves and merges all customised marker and connection settings
     public int mergeMarkerFiles(FabricClientCommandSource source, String mergedFileName, boolean includeCached, List<String> filenames) {
-        if (!BoshysBTEUtils.getConfig().enableMarkers) {
+        BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+        if (!config.enableMarkers) {
             source.sendError(Component.literal("§cMarkers disabled in config!"));
             return 0;
         }
@@ -899,60 +905,47 @@ public class MarkerStorage {
         List<MarkerData.SavedConnectionData> allConnections = new ArrayList<>();
         int baseIndex = 0;
 
-        // Track which source markers need to be removed from the world after merge
         Set<MarkerData.TeleportMarker> markersToRemove = new HashSet<>();
-        // Track which cache markers need to be removed
         Set<MarkerData.TeleportMarker> cacheMarkersToRemove = new HashSet<>();
-        // Track cache markers for connection preservation
         List<MarkerData.TeleportMarker> cacheMarkersInOrder = new ArrayList<>();
 
         for (String filename : filenames) {
             String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
             File file = getMarkersSavePath().resolve(cleanFilename + ".json").toFile();
 
-            try (FileReader reader = new FileReader(file)) {
-                MarkerData.SavedMarkerFile fileData = GSON.fromJson(reader, MarkerData.SavedMarkerFile.class);
-                if (fileData != null && fileData.markers != null) {
-                    // Find all markers currently in-world that belong to this source file
-                    for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
-                        String origin = BoshysBTEUtils.markerOrigins.get(marker);
-                        if (cleanFilename.equals(origin)) {
-                            markersToRemove.add(marker);
-                        }
+            MarkerData.SavedMarkerFile fileData = readMarkerFile(file, cleanFilename);
+            if (fileData != null && fileData.markers != null) {
+                for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
+                    String origin = BoshysBTEUtils.markerOrigins.get(marker);
+                    if (cleanFilename.equals(origin)) {
+                        markersToRemove.add(marker);
                     }
+                }
 
-                    for (int i = 0; i < fileData.markers.size(); i++) {
-                        MarkerData.SavedMarkerData data = fileData.markers.get(i);
-                        // FIXED: Preserve all customised marker settings including circle properties
-                        allMarkers.add(new MarkerData.SavedMarkerData(
-                                data.x, data.y, data.z,
-                                data.colour, data.scale, data.opacity,
-                                data.circleRadius, data.circleColour, data.circleOpacity, data.circleThickness, data.circleSegmentPercent
+                for (int i = 0; i < fileData.markers.size(); i++) {
+                    MarkerData.SavedMarkerData data = fileData.markers.get(i);
+                    allMarkers.add(new MarkerData.SavedMarkerData(
+                            data.x, data.y, data.z,
+                            data.colour, data.scale, data.opacity,
+                            data.circleRadius, data.circleColour, data.circleOpacity, data.circleThickness, data.circleSegmentPercent
+                    ));
+                }
+
+                if (fileData.connections != null) {
+                    for (MarkerData.SavedConnectionData conn : fileData.connections) {
+                        allConnections.add(new MarkerData.SavedConnectionData(
+                                conn.fromIndex + baseIndex,
+                                conn.toIndex + baseIndex,
+                                conn.lineColour, conn.lineOpacity, conn.lineThickness
                         ));
                     }
-
-                    if (fileData.connections != null) {
-                        for (MarkerData.SavedConnectionData conn : fileData.connections) {
-                            // FIXED: Preserve connection line customisations
-                            allConnections.add(new MarkerData.SavedConnectionData(
-                                    conn.fromIndex + baseIndex,
-                                    conn.toIndex + baseIndex,
-                                    conn.lineColour, conn.lineOpacity, conn.lineThickness
-                            ));
-                        }
-                    }
-
-                    baseIndex += fileData.markers.size();
                 }
-            } catch (IOException e) {
-                source.sendError(Component.literal("§cError reading file '" + cleanFilename + "': " + e.getMessage()));
-                return 0;
+
+                baseIndex += fileData.markers.size();
             }
         }
 
-        // CRITICAL FIX: Preserve connections between cache markers and between cache markers and file markers
         if (includeCached) {
-            // Collect all cache markers that will be included
             for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                 String origin = BoshysBTEUtils.markerOrigins.get(marker);
                 if (origin == null || origin.equals("autosave") || origin.startsWith("autosave_")) {
@@ -960,10 +953,7 @@ public class MarkerStorage {
                 }
             }
 
-            // Add cache markers to the merged list with all customised settings
-            int cacheBaseIndex = baseIndex;
             for (MarkerData.TeleportMarker marker : cacheMarkersInOrder) {
-                // FIXED: Preserve all customised marker settings including circle properties
                 allMarkers.add(new MarkerData.SavedMarkerData(
                         marker.position.x, marker.position.y, marker.position.z,
                         marker.colour, marker.scale, marker.opacity,
@@ -972,21 +962,13 @@ public class MarkerStorage {
                 cacheMarkersToRemove.add(marker);
             }
 
-            // CRITICAL FIX: Preserve connections among all markers being merged (file + cache)
-            // Build a unified index map for connection remapping.
-            // The indices MUST match the order markers were added to allMarkers:
-            //   0..(baseIndex-1) = file markers (in file order)
-            //   baseIndex..(baseIndex+cacheCount-1) = cache markers
             Map<MarkerData.TeleportMarker, Integer> unifiedIndexMap = new HashMap<>();
             int idx = 0;
 
-            // File markers in the same order they were added to allMarkers
             for (String filename : filenames) {
                 String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
-                // Use persistent file ID mapping to get markers in file index order
                 Map<Integer, MarkerData.TeleportMarker> fileIndexMap = fileMarkerIndexMap.get(cleanFilename);
                 if (fileIndexMap != null) {
-                    // Sort by index to maintain consistent order
                     List<Integer> sortedIndices = new ArrayList<>(fileIndexMap.keySet());
                     Collections.sort(sortedIndices);
                     for (int fileIdx : sortedIndices) {
@@ -996,7 +978,6 @@ public class MarkerStorage {
                         }
                     }
                 } else {
-                    // Fallback: iterate markers and match by origin, then original position
                     for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                         String origin = BoshysBTEUtils.markerOrigins.get(marker);
                         if (cleanFilename.equals(origin) && !unifiedIndexMap.containsKey(marker)) {
@@ -1006,13 +987,10 @@ public class MarkerStorage {
                 }
             }
 
-            // Cache markers in the same order they were added to allMarkers
             for (MarkerData.TeleportMarker marker : cacheMarkersInOrder) {
                 unifiedIndexMap.put(marker, idx++);
             }
 
-            // CRITICAL FIX: Remap all existing connections into the unified index space
-            // FIXED: Preserve connection line customisations
             Set<String> addedConnections = new HashSet<>();
             for (MarkerData.MarkerConnection conn : BoshysBTEUtils.markerConnections) {
                 Integer idx1 = unifiedIndexMap.get(conn.marker1);
@@ -1039,7 +1017,6 @@ public class MarkerStorage {
         MarkerData.SavedMarkerFile mergedData = new MarkerData.SavedMarkerFile(mergedFileName, System.currentTimeMillis(), allMarkers, allConnections);
         File mergedFile = getMarkersSavePath().resolve(mergedFileName + ".json").toFile();
 
-        // Write merged file BEFORE modifying world state (so we can rollback if save fails)
         try (FileWriter writer = new FileWriter(mergedFile)) {
             GSON.toJson(mergedData, writer);
             writer.flush();
@@ -1048,11 +1025,8 @@ public class MarkerStorage {
             return 0;
         }
 
-        // === SAVE SUCCESSFUL — now clean up old state ===
-
         hiddenFiles.remove(mergedFileName);
 
-        // Remove old source file markers from the world
         for (MarkerData.TeleportMarker marker : markersToRemove) {
             BoshysBTEUtils.markers.remove(marker);
             BoshysBTEUtils.markerOrigins.remove(marker);
@@ -1060,7 +1034,6 @@ public class MarkerStorage {
             markerToFileId.remove(marker);
         }
 
-        // Remove cache markers that were included in merge
         for (MarkerData.TeleportMarker marker : cacheMarkersToRemove) {
             BoshysBTEUtils.markers.remove(marker);
             BoshysBTEUtils.markerOrigins.remove(marker);
@@ -1068,7 +1041,6 @@ public class MarkerStorage {
             markerToFileId.remove(marker);
         }
 
-        // Clean up connections that involved removed markers
         BoshysBTEUtils.markerConnections.removeIf(conn ->
                 !BoshysBTEUtils.markers.contains(conn.marker1) || !BoshysBTEUtils.markers.contains(conn.marker2));
         BoshysBTEUtils.selectedMarkers.removeIf(marker -> !BoshysBTEUtils.markers.contains(marker));
@@ -1079,12 +1051,9 @@ public class MarkerStorage {
             BoshysBTEUtils.lastAutoConnectMarker = null;
         }
 
-        // CRITICAL FIX: Remove old files from loaded state and tracking
-        // BUT skip the merged file name to avoid deleting the file we just created
         for (String filename : filenames) {
             String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
 
-            // CRITICAL FIX: Don't delete the merged file if it shares a name with a source file
             if (cleanFilename.equals(mergedFileName)) {
                 continue;
             }
@@ -1094,21 +1063,18 @@ public class MarkerStorage {
             fileMarkerIndexMap.remove(cleanFilename);
             hiddenFiles.remove(cleanFilename);
 
-            // Delete the old source file from disk (only after successful merge)
             File oldFile = getMarkersSavePath().resolve(cleanFilename + ".json").toFile();
             if (oldFile.exists()) {
                 oldFile.delete();
             }
         }
 
-        // Load the merged file with all customised settings
         int loadedCount = 0;
         List<MarkerData.TeleportMarker> loadedMarkers = new ArrayList<>();
         Map<Integer, MarkerData.TeleportMarker> mergedIndexMap = new HashMap<>();
 
         for (int i = 0; i < mergedData.markers.size(); i++) {
             MarkerData.SavedMarkerData data = mergedData.markers.get(i);
-            // FIXED: Load all customised marker settings including circle properties
             MarkerData.TeleportMarker marker = new MarkerData.TeleportMarker(
                     new Vec3(data.x, data.y, data.z),
                     data.colour, data.scale, data.opacity
@@ -1136,13 +1102,16 @@ public class MarkerStorage {
             for (MarkerData.SavedConnectionData connData : mergedData.connections) {
                 if (connData.fromIndex >= 0 && connData.fromIndex < loadedMarkers.size() &&
                         connData.toIndex >= 0 && connData.toIndex < loadedMarkers.size()) {
-                    // FIXED: Load connection with customised line properties
                     MarkerData.MarkerConnection conn = MarkerData.connectMarkers(
                             loadedMarkers.get(connData.fromIndex), loadedMarkers.get(connData.toIndex)
                     );
-                    conn.lineColour = connData.lineColour;
-                    conn.lineOpacity = connData.lineOpacity;
-                    conn.lineThickness = connData.lineThickness;
+
+                    if (conn != null) {
+                        conn.lineColour = connData.lineColour;
+                        conn.lineOpacity = connData.lineOpacity;
+                        conn.lineThickness = connData.lineThickness;
+                    }
+
                     loadedConnections++;
                 }
             }
@@ -1164,6 +1133,7 @@ public class MarkerStorage {
         source.sendFeedback(message);
         return 1;
     }
+
     public int moveSelectedMarkers(FabricClientCommandSource source, double dx, double dy, double dz) {
         if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
             source.sendError(Component.literal("§cNo markers selected!"));
@@ -1173,18 +1143,13 @@ public class MarkerStorage {
         int movedCount = 0;
         for (MarkerData.TeleportMarker marker : BoshysBTEUtils.selectedMarkers) {
             if (BoshysBTEUtils.markers.contains(marker)) {
-                // Move the marker
                 marker.position = marker.position.add(dx, dy, dz);
                 movedCount++;
 
-                // CRITICAL FIX: Update the persistent ID tracking - the marker keeps its ID but position changes
                 FileMarkerId fileId = markerToFileId.get(marker);
                 if (fileId != null) {
-                    // Update the position in the file index map
                     Map<Integer, MarkerData.TeleportMarker> indexMap = fileMarkerIndexMap.get(fileId.filename);
                     if (indexMap != null && indexMap.get(fileId.index) == marker) {
-                        // Marker is still at the same index, just moved position
-                        // No need to change the mapping, but we should mark file as modified
                         MarkerData.SavedMarkerFile file = loadedFiles.get(fileId.filename);
                         if (file != null) {
                             modifiedLoadedFiles.put(fileId.filename, file);
@@ -1192,7 +1157,6 @@ public class MarkerStorage {
                     }
                 }
 
-                // Also update original position tracking for backwards compatibility
                 String origin = BoshysBTEUtils.markerOrigins.get(marker);
                 if (origin != null && !origin.equals("autosave") && !origin.startsWith("autosave_")) {
                     Vec3 currentOriginal = BoshysBTEUtils.markerOriginalPositions.get(marker);
@@ -1200,7 +1164,6 @@ public class MarkerStorage {
                         BoshysBTEUtils.markerOriginalPositions.put(marker, currentOriginal.add(dx, dy, dz));
                     }
 
-                    // Mark file as modified
                     MarkerData.SavedMarkerFile file = loadedFiles.get(origin);
                     if (file != null) {
                         modifiedLoadedFiles.put(origin, file);
@@ -1227,7 +1190,6 @@ public class MarkerStorage {
         return moveSelectedMarkers(source, dx, dy, dz);
     }
 
-    // FIXED: moveAllMarkersInFile now properly updates persistent ID tracking
     public int moveAllMarkersInFile(FabricClientCommandSource source, String filename, double dx, double dy, double dz) {
         String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
 
@@ -1236,7 +1198,6 @@ public class MarkerStorage {
             return 0;
         }
 
-        // Check if file is loaded
         if (!loadedFiles.containsKey(cleanFilename)) {
             source.sendError(Component.literal("§cFile '" + cleanFilename + "' is not loaded! Load it first with /boshys-bt-utils load " + cleanFilename));
             return 0;
@@ -1245,7 +1206,6 @@ public class MarkerStorage {
         int movedCount = 0;
         List<MarkerData.TeleportMarker> markersToMove = new ArrayList<>();
 
-        // Find all markers belonging to this file using persistent ID tracking
         Map<Integer, MarkerData.TeleportMarker> indexMap = fileMarkerIndexMap.get(cleanFilename);
         if (indexMap != null) {
             for (MarkerData.TeleportMarker marker : indexMap.values()) {
@@ -1255,7 +1215,6 @@ public class MarkerStorage {
             }
         }
 
-        // Fallback: scan all markers
         if (markersToMove.isEmpty()) {
             for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
                 String origin = BoshysBTEUtils.markerOrigins.get(marker);
@@ -1270,14 +1229,11 @@ public class MarkerStorage {
             return 0;
         }
 
-        // Move all markers from this file
         for (MarkerData.TeleportMarker marker : markersToMove) {
             if (BoshysBTEUtils.markers.contains(marker)) {
-                // Move the marker
                 marker.position = marker.position.add(dx, dy, dz);
                 movedCount++;
 
-                // CRITICAL FIX: Update original position tracking
                 Vec3 originalPos = BoshysBTEUtils.markerOriginalPositions.get(marker);
                 if (originalPos != null) {
                     BoshysBTEUtils.markerOriginalPositions.put(marker, originalPos.add(dx, dy, dz));
@@ -1285,7 +1241,6 @@ public class MarkerStorage {
             }
         }
 
-        // Mark file as modified for autosave
         MarkerData.SavedMarkerFile file = loadedFiles.get(cleanFilename);
         if (file != null) {
             modifiedLoadedFiles.put(cleanFilename, file);
@@ -1295,22 +1250,19 @@ public class MarkerStorage {
         return 1;
     }
 
-    // FIXED: Autosave now properly includes line connections for modified loaded files
-    // FIXED: Now preserves all customised marker and connection settings
     public void performAutosave() {
-        if (!BoshysBTEUtils.getConfig().enableAutosave) return;
+        BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+        if (!config.enableAutosave) return;
 
         Path savePath = getMarkersSavePath();
         boolean savedAnything = false;
 
-        // Autosave cache markers
         List<MarkerData.SavedMarkerData> cacheMarkers = new ArrayList<>();
         List<MarkerData.TeleportMarker> cacheMarkerObjects = new ArrayList<>();
 
         for (MarkerData.TeleportMarker marker : BoshysBTEUtils.markers) {
             String origin = BoshysBTEUtils.markerOrigins.get(marker);
             if (origin == null || origin.equals("autosave") || origin.startsWith("autosave_")) {
-                // FIXED: Preserve all customised settings including circle properties
                 cacheMarkers.add(new MarkerData.SavedMarkerData(
                         marker.position.x, marker.position.y, marker.position.z,
                         marker.colour, marker.scale, marker.opacity,
@@ -1333,7 +1285,6 @@ public class MarkerStorage {
                 Integer idx1 = cacheIndexMap.get(conn.marker1);
                 Integer idx2 = cacheIndexMap.get(conn.marker2);
                 if (idx1 != null && idx2 != null) {
-                    // FIXED: Preserve connection line customisations
                     cacheConnections.add(new MarkerData.SavedConnectionData(
                             idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
                     ));
@@ -1355,8 +1306,6 @@ public class MarkerStorage {
             }
         }
 
-        // FIXED: Autosave modified loaded files with proper connection tracking
-        // FIXED: Now preserves all customised settings
         for (Map.Entry<String, MarkerData.SavedMarkerFile> entry : modifiedLoadedFiles.entrySet()) {
             String filename = entry.getKey();
             MarkerData.SavedMarkerFile fileData = entry.getValue();
@@ -1368,12 +1317,10 @@ public class MarkerStorage {
                 List<MarkerData.SavedMarkerData> updatedMarkers = new ArrayList<>();
                 List<MarkerData.SavedConnectionData> updatedConnections = new ArrayList<>();
 
-                // FIXED: Build index map using persistent ID tracking
                 Map<MarkerData.TeleportMarker, Integer> markerIndexMap = new HashMap<>();
                 Map<Integer, MarkerData.TeleportMarker> indexToMarker = new HashMap<>();
                 int index = 0;
 
-                // First, try to use persistent ID mapping
                 Map<Integer, MarkerData.TeleportMarker> fileIndexMap = fileMarkerIndexMap.get(filename);
                 if (fileIndexMap != null) {
                     for (Map.Entry<Integer, MarkerData.TeleportMarker> entry2 : fileIndexMap.entrySet()) {
@@ -1381,7 +1328,6 @@ public class MarkerStorage {
                         if (BoshysBTEUtils.markers.contains(marker)) {
                             String origin = BoshysBTEUtils.markerOrigins.get(marker);
                             if (filename.equals(origin)) {
-                                // FIXED: Preserve all customised settings including circle properties
                                 updatedMarkers.add(new MarkerData.SavedMarkerData(
                                         marker.position.x, marker.position.y, marker.position.z,
                                         marker.colour, marker.scale, marker.opacity,
@@ -1395,7 +1341,6 @@ public class MarkerStorage {
                     }
                 }
 
-                // Fallback: scan by original position
                 if (updatedMarkers.isEmpty()) {
                     for (MarkerData.SavedMarkerData originalData : fileData.markers) {
                         Vec3 originalPos = new Vec3(originalData.x, originalData.y, originalData.z);
@@ -1407,7 +1352,6 @@ public class MarkerStorage {
 
                             if (filename.equals(origin) && markerOriginalPos != null &&
                                     posKey(markerOriginalPos).equals(posKey(originalPos))) {
-                                // FIXED: Preserve all customised settings
                                 updatedMarkers.add(new MarkerData.SavedMarkerData(
                                         marker.position.x, marker.position.y, marker.position.z,
                                         marker.colour, marker.scale, marker.opacity,
@@ -1428,8 +1372,6 @@ public class MarkerStorage {
                     }
                 }
 
-                // FIXED: Save connections between markers in this file with customised settings
-                // First, preserve existing connections that are still valid
                 if (fileData.connections != null) {
                     for (MarkerData.SavedConnectionData oldConn : fileData.connections) {
                         MarkerData.TeleportMarker fromMarker = indexToMarker.get(oldConn.fromIndex);
@@ -1439,16 +1381,19 @@ public class MarkerStorage {
                             Integer newFromIdx = markerIndexMap.get(fromMarker);
                             Integer newToIdx = markerIndexMap.get(toMarker);
                             if (newFromIdx != null && newToIdx != null) {
-                                // FIXED: Preserve connection line customisations
+                                MarkerData.MarkerConnection liveConn = MarkerData.getConnection(fromMarker, toMarker);
+                                int lineColour = liveConn != null ? liveConn.lineColour : oldConn.lineColour;
+                                float lineOpacity = liveConn != null ? liveConn.lineOpacity : oldConn.lineOpacity;
+                                float lineThickness = liveConn != null ? liveConn.lineThickness : oldConn.lineThickness;
+
                                 updatedConnections.add(new MarkerData.SavedConnectionData(
-                                        newFromIdx, newToIdx, oldConn.lineColour, oldConn.lineOpacity, oldConn.lineThickness
+                                        newFromIdx, newToIdx, lineColour, lineOpacity, lineThickness
                                 ));
                             }
                         }
                     }
                 }
 
-                // Then add any new connections between markers in this file
                 Set<String> existingConnections = new HashSet<>();
                 for (MarkerData.SavedConnectionData conn : updatedConnections) {
                     String key = Math.min(conn.fromIndex, conn.toIndex) + ":" + Math.max(conn.fromIndex, conn.toIndex);
@@ -1461,7 +1406,6 @@ public class MarkerStorage {
                     if (idx1 != null && idx2 != null && !idx1.equals(idx2)) {
                         String key = Math.min(idx1, idx2) + ":" + Math.max(idx1, idx2);
                         if (!existingConnections.contains(key)) {
-                            // FIXED: Preserve connection line customisations
                             updatedConnections.add(new MarkerData.SavedConnectionData(
                                     idx1, idx2, conn.lineColour, conn.lineOpacity, conn.lineThickness
                             ));
@@ -1488,9 +1432,10 @@ public class MarkerStorage {
     }
 
     public void tickAutosave() {
-        if (BoshysBTEUtils.getConfig().enableAutosave && BoshysBTEUtils.getConfig().autosaveIntervalMinutes > 0) {
+        BoshysBTEUtilsConfig config = BoshysBTEUtils.getConfig();
+        if (config.enableAutosave && config.autosaveIntervalMinutes > 0) {
             long currentTime = System.currentTimeMillis();
-            long intervalMs = BoshysBTEUtils.getConfig().autosaveIntervalMinutes * 60 * 1000;
+            long intervalMs = config.autosaveIntervalMinutes * 60 * 1000;
             if (currentTime - lastAutosaveTime >= intervalMs) {
                 performAutosave();
                 lastAutosaveTime = currentTime;
@@ -1502,7 +1447,6 @@ public class MarkerStorage {
         return String.format("%.2f,%.2f,%.2f", x, y, z);
     }
 
-    // Getters for loaded files
     public Map<String, MarkerData.SavedMarkerFile> getLoadedFiles() {
         return loadedFiles;
     }

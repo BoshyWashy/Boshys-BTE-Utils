@@ -549,7 +549,9 @@ public class CommandRegistry {
         // ── customise ────────────────────────────────────────────────────────
         root.then(CustomiseCommands.build());
 
+        // Register main command and alias
         dispatcher.register(root);
+        dispatcher.register(ClientCommands.literal("bbu").redirect(dispatcher.register(root)));
     }
 
     // -----------------------------------------------------------------------
