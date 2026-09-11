@@ -4,7 +4,6 @@ import com.boshys.bteutils.BoshysBTEUtils;
 import net.minecraft.world.phys.Vec3;
 
 public class MarkerData {
-
     public static class TeleportMarker {
         public Vec3 position;
         public int colour;
@@ -194,14 +193,8 @@ public class MarkerData {
         BoshysBTEUtils.markerOriginalPositions.clear();
     }
 
-    public static MarkerConnection connectMarkers(TeleportMarker m1, TeleportMarker m2) {
-        if (m1 == m2) return null;
-        if (!areMarkersConnected(m1, m2)) {
-            MarkerConnection conn = new MarkerConnection(m1, m2);
-            BoshysBTEUtils.markerConnections.add(conn);
-            return conn;
-        }
-        // Already connected - find and return existing connection
+    public static MarkerConnection getConnection(TeleportMarker m1, TeleportMarker m2) {
+        if (m1 == null || m2 == null) return null;
         for (MarkerConnection conn : BoshysBTEUtils.markerConnections) {
             if ((conn.marker1 == m1 && conn.marker2 == m2) ||
                     (conn.marker1 == m2 && conn.marker2 == m1)) {
@@ -209,6 +202,19 @@ public class MarkerData {
             }
         }
         return null;
+    }
+
+    public static MarkerConnection connectMarkers(TeleportMarker m1, TeleportMarker m2) {
+        if (m1 == m2 || m1 == null || m2 == null) return null;
+
+        MarkerConnection existing = getConnection(m1, m2);
+        if (existing != null) {
+            return existing;
+        }
+
+        MarkerConnection conn = new MarkerConnection(m1, m2);
+        BoshysBTEUtils.markerConnections.add(conn);
+        return conn;
     }
 
     public static void disconnectMarkers(TeleportMarker m1, TeleportMarker m2) {
@@ -219,13 +225,7 @@ public class MarkerData {
     }
 
     public static boolean areMarkersConnected(TeleportMarker m1, TeleportMarker m2) {
-        for (MarkerConnection conn : BoshysBTEUtils.markerConnections) {
-            if ((conn.marker1 == m1 && conn.marker2 == m2) ||
-                    (conn.marker1 == m2 && conn.marker2 == m1)) {
-                return true;
-            }
-        }
-        return false;
+        return getConnection(m1, m2) != null;
     }
 
     public static void handleAutoConnect(TeleportMarker newMarker) {

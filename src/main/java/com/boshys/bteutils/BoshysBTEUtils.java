@@ -734,7 +734,7 @@ public class BoshysBTEUtils implements ClientModInitializer {
                         MarkerData.disconnectMarkers(selectedMarker, hitMarker);
                         selectedMarkers.clear();
                         lastAutoConnectMarker = null;
-                        notifyActionBar(client, "command.boshysbteutils.marker.disconnected");
+                        notifyActionBar(client, "command.boshysbteutils.marker.connected");
                     } else {
                         MarkerData.connectMarkers(selectedMarker, hitMarker);
                         selectedMarkers.clear();

@@ -55,6 +55,9 @@ public class KmlImportHandler {
     // Cooldown counter
     private int cooldownTicks = 0;
 
+    // Creative mode switch tracking after completion
+    private boolean waitingForCreativeCommand = false;
+
     // Multiple KML import queue
     private List<String> kmlFileQueue = new ArrayList<>();
     private int currentKmlFileIndex = 0;
@@ -69,7 +72,7 @@ public class KmlImportHandler {
     }
 
     public boolean isImporting() {
-        return isKmlImporting || kmlImportWaitingToStart;
+        return isKmlImporting || kmlImportWaitingToStart || waitingForCreativeCommand;
     }
 
     public boolean isProcessingQueue() {
@@ -93,6 +96,7 @@ public class KmlImportHandler {
             inWorldEditSetupPhase = false;
             inSpectatorSetupPhase = false;
             cooldownTicks = 0;
+            waitingForCreativeCommand = false;
             positionBeforeTpll = null;
             lastCheckedPosition = null;
 
@@ -103,6 +107,18 @@ public class KmlImportHandler {
 
             // Always start with spectator setup, regardless of WorldEdit lines setting
             startSpectatorSetup(client);
+            return;
+        }
+
+        if (waitingForCreativeCommand) {
+            if (cooldownTicks > 0) {
+                cooldownTicks--;
+                return;
+            }
+            waitingForCreativeCommand = false;
+            if (client.player != null) {
+                client.player.connection.sendCommand("gamemode creative");
+            }
             return;
         }
 
@@ -234,7 +250,7 @@ public class KmlImportHandler {
      * Clears all import state so a new import can be started cleanly.
      */
     public void stopImport(Minecraft client) {
-        boolean wasActive = isKmlImporting || kmlImportWaitingToStart || isProcessingQueue;
+        boolean wasActive = isKmlImporting || kmlImportWaitingToStart || isProcessingQueue || waitingForCreativeCommand;
 
         // Reset all import state
         isKmlImporting = false;
@@ -267,6 +283,7 @@ public class KmlImportHandler {
         setupCommands.clear();
 
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
 
         kmlFileQueue.clear();
         currentKmlFileIndex = 0;
@@ -633,7 +650,7 @@ public class KmlImportHandler {
             return 0;
         }
 
-        if (isKmlImporting || kmlImportWaitingToStart) {
+        if (isKmlImporting || kmlImportWaitingToStart || waitingForCreativeCommand) {
             source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.in_progress"));
             return 0;
         }
@@ -688,6 +705,7 @@ public class KmlImportHandler {
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
         isProcessingQueue = false;
@@ -740,7 +758,7 @@ public class KmlImportHandler {
             return 0;
         }
 
-        if (isKmlImporting || kmlImportWaitingToStart || isProcessingQueue) {
+        if (isKmlImporting || kmlImportWaitingToStart || isProcessingQueue || waitingForCreativeCommand) {
             source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.in_progress"));
             return 0;
         }
@@ -829,6 +847,7 @@ public class KmlImportHandler {
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
         kmlBossBarId = null;
@@ -867,18 +886,14 @@ public class KmlImportHandler {
         clearBossBar(client);
 
         if (client.player != null) {
-            // Send advancement-like toast message (simulated via chat for now, but distinct)
             client.player.sendSystemMessage(
                     Component.translatable("command.boshysbteutils.kml.import.complete").withStyle(net.minecraft.ChatFormatting.GREEN, net.minecraft.ChatFormatting.BOLD)
-
             );
             client.player.sendSystemMessage(
                     Component.translatable("command.boshysbteutils.kml.import.success", importedCount, currentKmlFileName).withStyle(net.minecraft.ChatFormatting.GREEN)
-
             );
             client.player.sendSystemMessage(
                     Component.translatable("command.boshysbteutils.kml.import.normal").withStyle(net.minecraft.ChatFormatting.GREEN)
-                    // Action bar
             );
         }
 
@@ -900,11 +915,14 @@ public class KmlImportHandler {
         waitingForTeleport = false;
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
-        cooldownTicks = 0;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
         worldEditCommandQueue.clear();
         setupCommands.clear();
+
+        // Trigger creative mode command after cooldown
+        cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
+        waitingForCreativeCommand = true;
     }
 
     private void advanceQueueOrFinish(Minecraft client) {
@@ -944,11 +962,14 @@ public class KmlImportHandler {
             waitingForTeleport = false;
             inWorldEditSetupPhase = false;
             inSpectatorSetupPhase = false;
-            cooldownTicks = 0;
             positionBeforeTpll = null;
             lastCheckedPosition = null;
             worldEditCommandQueue.clear();
             setupCommands.clear();
+
+            // Trigger creative mode command after cooldown
+            cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
+            waitingForCreativeCommand = true;
         } else {
             // Prepare for next file
             clearBossBar(client);
@@ -974,10 +995,6 @@ public class KmlImportHandler {
         }
 
         String nextFile = kmlFileQueue.get(currentKmlFileIndex);
-
-        // Create a fake source for the next file (we'll use the client directly where needed)
-        // Actually, we need to handle this differently since we don't have the source anymore
-        // We'll store the feedback messages and display them directly
 
         Path kmlPath = MarkerStorage.getKmlSavePath();
         File kmlFile = kmlPath.resolve(nextFile + ".kml").toFile();
@@ -1022,6 +1039,7 @@ public class KmlImportHandler {
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
         kmlBossBarId = null;
