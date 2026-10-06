@@ -114,8 +114,8 @@
   "command.boshysbteutils.kml.import.normal": "§aVous pouvez maintenant utiliser Minecraft normalement.",
   "command.boshysbteutils.kml.import.progress": "Point %d/%d",
   "command.boshysbteutils.kml.import.progress.detailed": "Point %d/%d§e - Déplacé de %.1f blocs",
-  "command.boshysbteutils.kml.import.title.active": "§c§lImportation en cours",
-  "command.boshysbteutils.kml.import.subtitle.dont_move": "§eNe bougez pas jusqu'à la fin !",
+  "command.boshysbteutils.kml.import.title.active": "Importation en cours",
+  "command.boshysbteutils.kml.import.subtitle.dont_move": "Ne bougez pas jusqu'à la fin !",
   "command.boshysbteutils.kml.import.timeout_warning": "§ePoint %d§e expiré (lag détecté), continuation...",
   "command.boshysbteutils.kml.import.in_progress": "§cImportation KML déjà en cours ! Veuillez patienter...",
   "command.boshysbteutils.kml.import.no_points": "§cAucune coordonnée valide trouvée dans le fichier KML !",
@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Couleur par défaut pour les contours de cercles au format hex",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Opacité de cercle par défaut",
   "command.boshysbteutils.customise.circle.segments": "§aTaille de segment de §f%d§a cercle(s) mise à jour à §f%.2f§a !",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Opacité par défaut pour les contours de cercles (0,0 à 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Opacité par défaut pour les contours de cercles (0,0 à 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lAVERTISSEMENT :§r§e La fonctionnalité d'opacité pour les superpositions ne fonctionne pas sur Minecraft 26.2 et toutes les superpositions auront une teinte sombre en raison d'un problème de rendu. Désolé !"
 }

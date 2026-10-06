@@ -2,7 +2,7 @@ package com.boshys.bteutils.console;
 
 import com.boshys.bteutils.BoshysBTEUtils;
 import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -129,7 +129,7 @@ public class ConsoleMessageDetector {
         }
         lastTriggerTime = now;
 
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client.player == null) return;
 
         // Check TPLL marker mode - only trigger if manual mode is enabled
@@ -150,7 +150,7 @@ public class ConsoleMessageDetector {
      * but now detection is synchronous via triggerConsoleTeleportDetection.
      * Kept for backward compatibility with BoshysBTEUtils tick loop.
      */
-    public void processPendingMarkers(MinecraftClient client) {
+    public void processPendingMarkers(Minecraft client) {
         // Detection is now handled synchronously in triggerTeleportDetection.
         // This method remains so BoshysBTEUtils.tick() doesn't need changes.
     }

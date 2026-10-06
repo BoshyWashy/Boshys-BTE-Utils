@@ -1,144 +1,173 @@
 package com.boshys.bteutils.overlay;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.stb.STBImage;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.MemoryUtil;
+import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.*;
-import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
-import java.nio.file.Path;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Caches and provides OpenGL {@link Identifier} handles for overlay images.
- * Images are loaded from config/boshysbtutils/images/ on first use.
- *
- * <p>All operations that touch OpenGL must be called from the render thread.
- * Loading the raw bytes is safe from any thread; uploading is deferred until
- * the next render call.</p>
+ * Caches and provides raw ARGB pixel grid data along with OpenGL/RenderPearl handles.
  */
 public class OverlayTextureManager {
 
-    /** namespace used for all overlay texture identifiers */
     private static final String NAMESPACE = "boshysbteutils";
-
-    /** cache: image filename → registered texture identifier */
     private final Map<String, Identifier> textureCache = new HashMap<>();
-    /** tracks filenames queued for loading but not yet uploaded */
-    private final Map<String, byte[]> pendingLoads = new HashMap<>();
+    private final Map<String, PixelData> pixelDataCache = new HashMap<>();
+
+    public static class PixelData {
+        public final int width;
+        public final int height;
+        public final int[] pixels; // ARGB pixel values (0xAARRGGBB)
+
+        public PixelData(int width, int height, int[] pixels) {
+            this.width = width;
+            this.height = height;
+            this.pixels = pixels;
+        }
+    }
 
     public OverlayTextureManager() {}
 
     /**
-     * Returns the {@link Identifier} for the given image filename, loading and
-     * uploading the texture if necessary.
-     *
-     * Must be called from the render thread.
-     *
-     * @param imageFilename e.g. "mymap.png"
-     * @return identifier, or null if the image couldn't be loaded
+     * Processes texture creation and pixel data caching during client tick.
      */
-    public Identifier getOrLoadTexture(String imageFilename) {
-        if (textureCache.containsKey(imageFilename)) {
-            return textureCache.get(imageFilename);
+    public void tick(OverlayStorage storage) {
+        if (storage == null) return;
+        for (OverlayData.ImageOverlay overlay : storage.getLoadedOverlays().values()) {
+            if (overlay.imageFilename != null && !pixelDataCache.containsKey(overlay.imageFilename)) {
+                loadAndUploadTexture(overlay.imageFilename);
+            }
         }
+    }
 
-        // Try to load from disk
+    /**
+     * Retrieves the cached raw ARGB pixel grid data for an image overlay.
+     * Auto-loads synchronously if not already cached.
+     */
+    public PixelData getPixelData(String imageFilename) {
+        if (imageFilename == null) return null;
+        if (!pixelDataCache.containsKey(imageFilename)) {
+            loadAndUploadTexture(imageFilename);
+        }
+        return pixelDataCache.get(imageFilename);
+    }
+
+    public Identifier getTexture(String imageFilename) {
+        return textureCache.get(imageFilename);
+    }
+
+    public GpuTextureView getTextureView(String imageFilename) {
+        Identifier id = textureCache.get(imageFilename);
+        if (id == null) return null;
+        AbstractTexture texture = Minecraft.getInstance().getTextureManager().getTexture(id);
+        if (texture == null) return null;
+        try {
+            return texture.getTextureView();
+        } catch (Throwable t) {
+            try {
+                java.lang.reflect.Method m = texture.getClass().getMethod("getTextureView");
+                return (GpuTextureView) m.invoke(texture);
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+    }
+
+    private void loadAndUploadTexture(String imageFilename) {
         File imageFile = OverlayStorage.getImagesPath().resolve(imageFilename).toFile();
         if (!imageFile.exists()) {
-            return null;
+            textureCache.put(imageFilename, null);
+            pixelDataCache.put(imageFilename, null);
+            return;
         }
 
         try {
-            Identifier id = uploadTexture(imageFilename, imageFile);
-            if (id != null) {
-                textureCache.put(imageFilename, id);
-            }
-            return id;
-        } catch (Exception e) {
-            // Put null in cache so we don't retry every frame
-            textureCache.put(imageFilename, null);
-            return null;
-        }
-    }
+            String lower = imageFilename.toLowerCase();
+            NativeImage nativeImage;
+            int width, height;
+            int[] argbPixels;
 
-    /**
-     * Loads a JPEG or PNG from disk and registers it with Minecraft's texture manager
-     * as a {@link NativeImageBackedTexture}.
-     */
-    private Identifier uploadTexture(String imageFilename, File imageFile) throws Exception {
-        String lower = imageFilename.toLowerCase();
+            if (lower.endsWith(".png")) {
+                try (InputStream is = new FileInputStream(imageFile)) {
+                    nativeImage = NativeImage.read(is);
+                    width = nativeImage.getWidth();
+                    height = nativeImage.getHeight();
+                    argbPixels = new int[width * height];
+                    for (int y = 0; y < height; y++) {
+                        for (int x = 0; x < width; x++) {
+                            // Standard ARGB extraction to prevent Red/Blue channel swapping
+                            int pixel = nativeImage.getPixel(x, y);
+                            int a = (pixel >> 24) & 0xFF;
+                            int r = (pixel >> 16) & 0xFF;
+                            int g = (pixel >> 8) & 0xFF;
+                            int b = pixel & 0xFF;
+                            argbPixels[y * width + x] = (a << 24) | (r << 16) | (g << 8) | b;
+                        }
+                    }
+                }
+            } else {
+                BufferedImage buffered = ImageIO.read(imageFile);
+                if (buffered == null) {
+                    textureCache.put(imageFilename, null);
+                    pixelDataCache.put(imageFilename, null);
+                    return;
+                }
+                width = buffered.getWidth();
+                height = buffered.getHeight();
+                argbPixels = new int[width * height];
+                buffered.getRGB(0, 0, width, height, argbPixels, 0, width);
 
-        NativeImage nativeImage;
-
-        if (lower.endsWith(".png")) {
-            // NativeImage can load PNGs directly
-            try (InputStream is = new FileInputStream(imageFile)) {
-                nativeImage = NativeImage.read(is);
-            }
-        } else {
-            // JPEG: decode with AWT then convert to NativeImage (ARGB/RGBA)
-            BufferedImage buffered = ImageIO.read(imageFile);
-            if (buffered == null) {
-                return null;
-            }
-            int w = buffered.getWidth();
-            int h = buffered.getHeight();
-            nativeImage = new NativeImage(NativeImage.Format.RGBA, w, h, false);
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) {
-                    int argb = buffered.getRGB(x, y);
-                    // AWT gives ARGB; NativeImage.setColor expects ABGR
-                    int a = (argb >> 24) & 0xFF;
-                    int r = (argb >> 16) & 0xFF;
-                    int g = (argb >> 8) & 0xFF;
-                    int b = argb & 0xFF;
-                    // Pack as ABGR
-                    int abgr = (a << 24) | (b << 16) | (g << 8) | r;
-                    nativeImage.setColorArgb(x, y, abgr);
+                nativeImage = new NativeImage(NativeImage.Format.RGBA, width, height, false);
+                for (int y = 0; y < height; y++) {
+                    for (int x = 0; x < width; x++) {
+                        int argb = argbPixels[y * width + x];
+                        int a = (argb >> 24) & 0xFF;
+                        int r = (argb >> 16) & 0xFF;
+                        int g = (argb >> 8) & 0xFF;
+                        int b = argb & 0xFF;
+                        int abgr = (a << 24) | (b << 16) | (g << 8) | r;
+                        nativeImage.setPixel(x, y, abgr);
+                    }
                 }
             }
+
+            pixelDataCache.put(imageFilename, new PixelData(width, height, argbPixels));
+
+            DynamicTexture texture = new DynamicTexture(() -> "boshysbteutils/overlay/" + imageFilename, nativeImage);
+            String safeName = imageFilename.toLowerCase().replaceAll("[^a-z0-9_./]", "_");
+            Identifier id = Identifier.fromNamespaceAndPath(NAMESPACE, "overlays/" + safeName);
+
+            Minecraft.getInstance().getTextureManager().register(id, texture);
+            textureCache.put(imageFilename, id);
+        } catch (Exception e) {
+            textureCache.put(imageFilename, null);
+            pixelDataCache.put(imageFilename, null);
         }
-
-        NativeImageBackedTexture texture = new NativeImageBackedTexture(
-                () -> "bteutils_overlay_" + imageFilename,
-                nativeImage
-        );
-
-        // Create a deterministic identifier from the filename
-        String safeName = imageFilename.toLowerCase().replaceAll("[^a-z0-9_./]", "_");
-        Identifier id = Identifier.of(NAMESPACE, "overlays/" + safeName);
-
-        MinecraftClient.getInstance().getTextureManager().registerTexture(id, texture);
-        return id;
     }
 
-    /**
-     * Evict a cached texture (e.g. when the image file is deleted).
-     * The texture is also destroyed in the texture manager.
-     */
     public void evict(String imageFilename) {
+        pixelDataCache.remove(imageFilename);
         Identifier id = textureCache.remove(imageFilename);
         if (id != null) {
-            MinecraftClient.getInstance().getTextureManager().destroyTexture(id);
+            Minecraft.getInstance().getTextureManager().release(id);
         }
     }
 
-    /** Evict all cached textures. */
     public void evictAll() {
+        pixelDataCache.clear();
         for (Map.Entry<String, Identifier> entry : textureCache.entrySet()) {
             if (entry.getValue() != null) {
-                MinecraftClient.getInstance().getTextureManager().destroyTexture(entry.getValue());
+                Minecraft.getInstance().getTextureManager().release(entry.getValue());
             }
         }
         textureCache.clear();

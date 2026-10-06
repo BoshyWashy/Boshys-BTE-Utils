@@ -114,8 +114,8 @@
   "command.boshysbteutils.kml.import.normal": "§aТеперь вы можете нормально использовать Minecraft.",
   "command.boshysbteutils.kml.import.progress": "Точка %d/%d",
   "command.boshysbteutils.kml.import.progress.detailed": "Точка %d/%d§e - Перемещено на %.1f блоков",
-  "command.boshysbteutils.kml.import.title.active": "§c§lИдет импорт",
-  "command.boshysbteutils.kml.import.subtitle.dont_move": "§eНе двигайтесь до завершения!",
+  "command.boshysbteutils.kml.import.title.active": "Идет импорт",
+  "command.boshysbteutils.kml.import.subtitle.dont_move": "Не двигайтесь до завершения!",
   "command.boshysbteutils.kml.import.timeout_warning": "§eТочка %d§e превысила время ожидания (обнаружен лаг), продолжение...",
   "command.boshysbteutils.kml.import.in_progress": "§cИмпорт KML уже идет! Пожалуйста, подождите...",
   "command.boshysbteutils.kml.import.no_points": "§cВ файле KML не найдены действительные координаты!",
@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Цвет по умолчанию для контуров кругов в формате hex",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Непрозрачность круга по умолчанию",
   "command.boshysbteutils.customise.circle.segments": "§aРазмер сегмента §f%d§a круга(ов) обновлён до §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Непрозрачность по умолчанию для контуров кругов (от 0,0 до 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Непрозрачность по умолчанию для контуров кругов (от 0,0 до 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lОТКАЗ ОТ ОТВЕТСТВЕННОСТИ:§r§e Функция прозрачности для оверлеев не работает в Minecraft 26.2, и все оверлеи будут иметь тёмный оттенок из-за проблемы с рендерингом. Извините!"
 }

@@ -24,19 +24,19 @@ public class BoshysBTEUtilsConfig implements ConfigData {
 
     @ConfigEntry.Gui.Tooltip
     @Comment("When to automatically place TPLL markers: DISABLED, KEYBIND_AND_MANUAL, KEYBIND_ONLY, or MANUAL_ONLY")
-    public TpllMarkerMode tpllMarkerMode = TpllMarkerMode.DISABLED;
+    public TpllMarkerMode tpllMarkerMode = TpllMarkerMode.KEYBIND_ONLY;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Default marker colour in hex format (default: 0xFF0000 = red)")
+    @Comment("Default marker colour in hex format (default: 0xFF0000 = 16711680)")
     public int markerColour = 0xFF0000;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Default marker opacity (0.0 to 1.0, default: 0.8)")
-    public float markerOpacity = 0.8f;
+    @Comment("Default marker opacity (0.0 to 1.0, default: 0.7)")
+    public float markerOpacity = 0.7f;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Default marker scale/size (default: 0.05 = small cube)")
-    public float markerScale = 0.05f;
+    @Comment("Default marker scale/size (default: 0.1)")
+    public float markerScale = 0.1f;
 
     // Clear Confirmation Settings
     @ConfigEntry.Gui.Tooltip
@@ -44,16 +44,16 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public boolean enableClearConfirmation = true;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Maximum markers before requiring confirmation (default: 3)")
-    public int clearConfirmLimit = 3;
+    @Comment("Maximum markers before requiring confirmation (default: 6)")
+    public int clearConfirmLimit = 6;
 
     // Line Connection Settings
     @ConfigEntry.Gui.Tooltip
     @Comment("Enable automatic line connections between markers")
-    public boolean enableAutoLineConnection = false;
+    public boolean enableAutoLineConnection = true;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Default line colour in hex format (default: 0x00FF00 = green)")
+    @Comment("Default line colour in hex format (default: 0x00FF00 = 65280)")
     public int lineColour = 0x00FF00;
 
     @ConfigEntry.Gui.Tooltip
@@ -61,8 +61,8 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public float lineOpacity = 0.6f;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Default line thickness/width (default: 0.1)")
-    public float lineThickness = 0.1f;
+    @Comment("Default line thickness/width (default: 0.5)")
+    public float lineThickness = 0.5f;
 
     // Circle Settings
     @ConfigEntry.Gui.Tooltip
@@ -74,7 +74,7 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public float circleSegmentPercent = 1.0f;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Default circle colour in hex format (default: 0x00FF00 = green)")
+    @Comment("Default circle colour in hex format (default: 0x00FF00 = 65280)")
     public int circleColour = 0x00FF00;
 
     @ConfigEntry.Gui.Tooltip
@@ -87,8 +87,8 @@ public class BoshysBTEUtilsConfig implements ConfigData {
     public float overlayImageOpacity = 1.0f;
 
     @ConfigEntry.Gui.Tooltip
-    @Comment("Overlay render distance in chunks. -1 = use Minecraft simulation distance. 0 = unlimited (always render).")
-    public int overlayRenderDistance = -1;
+    @Comment("Overlay render distance in chunks (default: 16)")
+    public int overlayRenderDistance = 16;
 
     // Saved Markers Settings
     @ConfigEntry.Gui.Tooltip
@@ -128,7 +128,7 @@ public class BoshysBTEUtilsConfig implements ConfigData {
 
     @ConfigEntry.Gui.Tooltip
     @Comment("Locked altitude value when using LOCKED altitude mode (can be any number, positive or negative)")
-    public double kmlLockedAltitudeValue = 64.0;
+    public double kmlLockedAltitudeValue = 0.0;
 
     @ConfigEntry.Gui.Tooltip
     @Comment("Altitude offset added to all KML points (positive or negative)")
@@ -235,7 +235,7 @@ public class BoshysBTEUtilsConfig implements ConfigData {
 
         // Validate TPLL marker mode
         if (tpllMarkerMode == null) {
-            tpllMarkerMode = TpllMarkerMode.DISABLED;
+            tpllMarkerMode = TpllMarkerMode.KEYBIND_ONLY;
         }
 
         // Validate WorldEdit line block
@@ -243,10 +243,6 @@ public class BoshysBTEUtilsConfig implements ConfigData {
             worldEditLineBlock = "diamond_block";
         }
         worldEditLineBlock = worldEditLineBlock.trim().replaceAll("\\s+", "_");
-
-        // Validate overlay render distance (-1 = simulation distance, 0 = unlimited, max 64 chunks)
-        if (overlayRenderDistance < -1) overlayRenderDistance = -1;
-        if (overlayRenderDistance > 64) overlayRenderDistance = 64;
 
         // Validate overlay render distance (-1 = simulation distance, 0 = unlimited, max 64 chunks)
         if (overlayRenderDistance < -1) overlayRenderDistance = -1;

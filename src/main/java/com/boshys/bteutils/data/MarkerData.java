@@ -1,12 +1,11 @@
 package com.boshys.bteutils.data;
 
 import com.boshys.bteutils.BoshysBTEUtils;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 public class MarkerData {
-
     public static class TeleportMarker {
-        public Vec3d position;
+        public Vec3 position;
         public int colour;
         public float scale;
         public float opacity;
@@ -21,7 +20,7 @@ public class MarkerData {
         /** Per-marker circle segment percent (overrides global default if set). -1 = use default. */
         public float circleSegmentPercent;
 
-        public TeleportMarker(Vec3d position, int colour, float scale, float opacity) {
+        public TeleportMarker(Vec3 position, int colour, float scale, float opacity) {
             this.position = position;
             this.colour = colour;
             this.scale = scale;
@@ -158,7 +157,7 @@ public class MarkerData {
     }
 
     // Static methods for marker operations
-    public static TeleportMarker addMarker(Vec3d pos) {
+    public static TeleportMarker addMarker(net.minecraft.world.phys.Vec3 pos) {
         TeleportMarker marker = new TeleportMarker(pos, BoshysBTEUtils.getConfig().markerColour, BoshysBTEUtils.getConfig().markerScale, BoshysBTEUtils.getConfig().markerOpacity);
         BoshysBTEUtils.markers.add(marker);
         return marker;
@@ -194,14 +193,8 @@ public class MarkerData {
         BoshysBTEUtils.markerOriginalPositions.clear();
     }
 
-    public static MarkerConnection connectMarkers(TeleportMarker m1, TeleportMarker m2) {
-        if (m1 == m2) return null;
-        if (!areMarkersConnected(m1, m2)) {
-            MarkerConnection conn = new MarkerConnection(m1, m2);
-            BoshysBTEUtils.markerConnections.add(conn);
-            return conn;
-        }
-        // Already connected - find and return existing connection
+    public static MarkerConnection getConnection(TeleportMarker m1, TeleportMarker m2) {
+        if (m1 == null || m2 == null) return null;
         for (MarkerConnection conn : BoshysBTEUtils.markerConnections) {
             if ((conn.marker1 == m1 && conn.marker2 == m2) ||
                     (conn.marker1 == m2 && conn.marker2 == m1)) {
@@ -209,6 +202,19 @@ public class MarkerData {
             }
         }
         return null;
+    }
+
+    public static MarkerConnection connectMarkers(TeleportMarker m1, TeleportMarker m2) {
+        if (m1 == m2 || m1 == null || m2 == null) return null;
+
+        MarkerConnection existing = getConnection(m1, m2);
+        if (existing != null) {
+            return existing;
+        }
+
+        MarkerConnection conn = new MarkerConnection(m1, m2);
+        BoshysBTEUtils.markerConnections.add(conn);
+        return conn;
     }
 
     public static void disconnectMarkers(TeleportMarker m1, TeleportMarker m2) {
@@ -219,20 +225,14 @@ public class MarkerData {
     }
 
     public static boolean areMarkersConnected(TeleportMarker m1, TeleportMarker m2) {
-        for (MarkerConnection conn : BoshysBTEUtils.markerConnections) {
-            if ((conn.marker1 == m1 && conn.marker2 == m2) ||
-                    (conn.marker1 == m2 && conn.marker2 == m1)) {
-                return true;
-            }
-        }
-        return false;
+        return getConnection(m1, m2) != null;
     }
 
     public static void handleAutoConnect(TeleportMarker newMarker) {
         // Connect to selected marker(s) if any, otherwise connect to last auto-connect target
         if (!BoshysBTEUtils.selectedMarkers.isEmpty()) {
             // Connect the new marker to ALL currently selected markers
-            for (MarkerData.TeleportMarker selected : BoshysBTEUtils.selectedMarkers) {
+            for (TeleportMarker selected : BoshysBTEUtils.selectedMarkers) {
                 if (selected != newMarker) {
                     connectMarkers(selected, newMarker);
                 }

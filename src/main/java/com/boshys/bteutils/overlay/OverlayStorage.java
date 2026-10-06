@@ -2,19 +2,14 @@ package com.boshys.bteutils.overlay;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Manages persisting and loading overlay data from
@@ -117,7 +112,7 @@ public class OverlayStorage {
         }
     }
 
-    public OverlayData.ImageOverlay createOverlay(String displayName, String imageFilename, Vec3d anchor, double size) {
+    public OverlayData.ImageOverlay createOverlay(String displayName, String imageFilename, Vec3 anchor, double size) {
         String safeKey = OverlayData.toSafeFilename(displayName);
         OverlayData.ImageOverlay overlay = new OverlayData.ImageOverlay(displayName, imageFilename, anchor, size);
         loadedOverlays.put(safeKey, overlay);

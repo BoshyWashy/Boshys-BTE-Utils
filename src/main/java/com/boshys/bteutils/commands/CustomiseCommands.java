@@ -10,11 +10,11 @@ import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,7 +88,7 @@ public class CustomiseCommands {
     // -----------------------------------------------------------------------
 
     public static LiteralArgumentBuilder<FabricClientCommandSource> build() {
-        return ClientCommandManager.literal("customise")
+        return ClientCommands.literal("customise")
                 .then(buildMarkerBranch())
                 .then(buildLineBranch())
                 .then(buildCircleBranch());
@@ -97,7 +97,7 @@ public class CustomiseCommands {
     // ===================== MARKER BRANCH =====================
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> buildMarkerBranch() {
-        return ClientCommandManager.literal("marker")
+        return ClientCommands.literal("marker")
                 // selected / all (no radius needed)
                 .then(buildMarkerTargetBranch("selected", -1))
                 .then(buildMarkerTargetBranch("all", -1))
@@ -106,10 +106,10 @@ public class CustomiseCommands {
     }
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> buildMarkerTargetBranch(String targetType, int radiusFlag) {
-        var target = ClientCommandManager.literal(targetType.toLowerCase());
+        var target = ClientCommands.literal(targetType.toLowerCase());
 
         if (radiusFlag == 0) {
-            var radiusArg = ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0.1));
+            var radiusArg = ClientCommands.argument("radius", DoubleArgumentType.doubleArg(0.1));
             attachMarkerProperties(radiusArg, targetType, radiusFlag);
             target.then(radiusArg);
         } else {
@@ -121,24 +121,24 @@ public class CustomiseCommands {
 
     private static void attachMarkerProperties(ArgumentBuilder<FabricClientCommandSource, ?> parent, String targetType, int radiusFlag) {
         // opacity <value>
-        parent.then(ClientCommandManager.literal("opacity")
-                .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+        parent.then(ClientCommands.literal("opacity")
+                .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
                         .executes(ctx -> executeMarkerCustomise(ctx, "opacity", targetType, radiusFlag))));
 
         // colour <hex>
-        parent.then(ClientCommandManager.literal("colour")
-                .then(ClientCommandManager.argument("hex", StringArgumentType.word())
+        parent.then(ClientCommands.literal("colour")
+                .then(ClientCommands.argument("hex", StringArgumentType.word())
                         .executes(ctx -> executeMarkerCustomise(ctx, "colour", targetType, radiusFlag))));
 
         // scale <value>
-        parent.then(ClientCommandManager.literal("scale")
-                .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.01f, 1.0f))
+        parent.then(ClientCommands.literal("scale")
+                .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.01f, 1.0f))
                         .executes(ctx -> executeMarkerCustomise(ctx, "scale", targetType, radiusFlag))));
 
         // default [subproperty]
-        parent.then(ClientCommandManager.literal("default")
+        parent.then(ClientCommands.literal("default")
                 .executes(ctx -> executeMarkerCustomise(ctx, "default", targetType, radiusFlag))
-                .then(ClientCommandManager.argument("subproperty", StringArgumentType.word())
+                .then(ClientCommands.argument("subproperty", StringArgumentType.word())
                         .suggests(DEFAULT_SUB_SUGGESTIONS)
                         .executes(ctx -> executeMarkerCustomise(ctx, "default_sub", targetType, radiusFlag))));
     }
@@ -147,17 +147,17 @@ public class CustomiseCommands {
     // ===================== LINE BRANCH =====================
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> buildLineBranch() {
-        return ClientCommandManager.literal("line")
+        return ClientCommands.literal("line")
                 .then(buildLineTargetBranch("selected", -1))
                 .then(buildLineTargetBranch("all", -1))
                 .then(buildLineTargetBranch("inRange", 0));
     }
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> buildLineTargetBranch(String targetType, int radiusFlag) {
-        var target = ClientCommandManager.literal(targetType.toLowerCase());
+        var target = ClientCommands.literal(targetType.toLowerCase());
 
         if (radiusFlag == 0) {
-            var radiusArg = ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0.1));
+            var radiusArg = ClientCommands.argument("radius", DoubleArgumentType.doubleArg(0.1));
             attachLineProperties(radiusArg, targetType, radiusFlag);
             target.then(radiusArg);
         } else {
@@ -169,24 +169,24 @@ public class CustomiseCommands {
 
     private static void attachLineProperties(ArgumentBuilder<FabricClientCommandSource, ?> parent, String targetType, int radiusFlag) {
         // opacity <value>
-        parent.then(ClientCommandManager.literal("opacity")
-                .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+        parent.then(ClientCommands.literal("opacity")
+                .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
                         .executes(ctx -> executeLineCustomise(ctx, "opacity", targetType, radiusFlag))));
 
         // colour <hex>
-        parent.then(ClientCommandManager.literal("colour")
-                .then(ClientCommandManager.argument("hex", StringArgumentType.word())
+        parent.then(ClientCommands.literal("colour")
+                .then(ClientCommands.argument("hex", StringArgumentType.word())
                         .executes(ctx -> executeLineCustomise(ctx, "colour", targetType, radiusFlag))));
 
         // thickness <value>
-        parent.then(ClientCommandManager.literal("thickness")
-                .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.1f, 10.0f))
+        parent.then(ClientCommands.literal("thickness")
+                .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.1f, 10.0f))
                         .executes(ctx -> executeLineCustomise(ctx, "thickness", targetType, radiusFlag))));
 
         // default [subproperty]
-        parent.then(ClientCommandManager.literal("default")
+        parent.then(ClientCommands.literal("default")
                 .executes(ctx -> executeLineCustomise(ctx, "default", targetType, radiusFlag))
-                .then(ClientCommandManager.argument("subproperty", StringArgumentType.word())
+                .then(ClientCommands.argument("subproperty", StringArgumentType.word())
                         .suggests(LINE_DEFAULT_SUB_SUGGESTIONS)
                         .executes(ctx -> executeLineCustomise(ctx, "default_sub", targetType, radiusFlag))));
     }
@@ -194,17 +194,17 @@ public class CustomiseCommands {
     // ===================== CIRCLE BRANCH =====================
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> buildCircleBranch() {
-        return ClientCommandManager.literal("circle")
+        return ClientCommands.literal("circle")
                 .then(buildCircleTargetBranch("selected", -1))
                 .then(buildCircleTargetBranch("all", -1))
                 .then(buildCircleTargetBranch("inRange", 0));
     }
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> buildCircleTargetBranch(String targetType, int radiusFlag) {
-        var target = ClientCommandManager.literal(targetType.toLowerCase());
+        var target = ClientCommands.literal(targetType.toLowerCase());
 
         if (radiusFlag == 0) {
-            var radiusArg = ClientCommandManager.argument("radius", DoubleArgumentType.doubleArg(0.1));
+            var radiusArg = ClientCommands.argument("radius", DoubleArgumentType.doubleArg(0.1));
             attachCircleProperties(radiusArg, targetType, radiusFlag);
             target.then(radiusArg);
         } else {
@@ -216,29 +216,29 @@ public class CustomiseCommands {
 
     private static void attachCircleProperties(ArgumentBuilder<FabricClientCommandSource, ?> parent, String targetType, int radiusFlag) {
         // opacity <value>
-        parent.then(ClientCommandManager.literal("opacity")
-                .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+        parent.then(ClientCommands.literal("opacity")
+                .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
                         .executes(ctx -> executeCircleCustomise(ctx, "opacity", targetType, radiusFlag))));
 
         // colour <hex>
-        parent.then(ClientCommandManager.literal("colour")
-                .then(ClientCommandManager.argument("hex", StringArgumentType.word())
+        parent.then(ClientCommands.literal("colour")
+                .then(ClientCommands.argument("hex", StringArgumentType.word())
                         .executes(ctx -> executeCircleCustomise(ctx, "colour", targetType, radiusFlag))));
 
         // thickness <value>
-        parent.then(ClientCommandManager.literal("thickness")
-                .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.01f, 10.0f))
+        parent.then(ClientCommands.literal("thickness")
+                .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.01f, 10.0f))
                         .executes(ctx -> executeCircleCustomise(ctx, "thickness", targetType, radiusFlag))));
 
         // segments <value>
-        parent.then(ClientCommandManager.literal("segments")
-                .then(ClientCommandManager.argument("value", FloatArgumentType.floatArg(0.01f))
+        parent.then(ClientCommands.literal("segments")
+                .then(ClientCommands.argument("value", FloatArgumentType.floatArg(0.01f))
                         .executes(ctx -> executeCircleCustomise(ctx, "segments", targetType, radiusFlag))));
 
         // default [subproperty]
-        parent.then(ClientCommandManager.literal("default")
+        parent.then(ClientCommands.literal("default")
                 .executes(ctx -> executeCircleCustomise(ctx, "default", targetType, radiusFlag))
-                .then(ClientCommandManager.argument("subproperty", StringArgumentType.word())
+                .then(ClientCommands.argument("subproperty", StringArgumentType.word())
                         .suggests(CIRCLE_DEFAULT_SUB_SUGGESTIONS)
                         .executes(ctx -> executeCircleCustomise(ctx, "default_sub", targetType, radiusFlag))));
     }
@@ -248,8 +248,8 @@ public class CustomiseCommands {
     // -----------------------------------------------------------------------
 
     private static int executeMarkerCustomise(CommandContext<FabricClientCommandSource> ctx, String property, String targetType, int radiusFlag) {
-        ClientPlayerEntity player = ctx.getSource().getPlayer();
-        Vec3d playerPos = player != null ? new Vec3d(player.getX(), player.getY(), player.getZ()) : null;
+        LocalPlayer player = ctx.getSource().getPlayer();
+        Vec3 playerPos = player != null ? new Vec3(player.getX(), player.getY(), player.getZ()) : null;
         double radius = radiusFlag == 0 ? DoubleArgumentType.getDouble(ctx, "radius") : -1;
 
         List<MarkerData.TeleportMarker> targets = resolveMarkerTargets(targetType, playerPos, radius, ctx);
@@ -265,7 +265,7 @@ public class CustomiseCommands {
                     m.opacity = value;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.marker.opacity", count, value));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.marker.opacity", count, value));
             }
             case "colour" -> {
                 String hex = StringArgumentType.getString(ctx, "hex").trim();
@@ -273,14 +273,14 @@ public class CustomiseCommands {
                 try {
                     colour = Integer.parseInt(hex.replace("#", ""), 16);
                 } catch (NumberFormatException e) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_hex", hex));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_hex", hex));
                     return 0;
                 }
                 for (MarkerData.TeleportMarker m : targets) {
                     m.colour = colour;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.marker.colour", count, hex));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.marker.colour", count, hex));
             }
             case "scale" -> {
                 float value = FloatArgumentType.getFloat(ctx, "value");
@@ -288,7 +288,7 @@ public class CustomiseCommands {
                     m.scale = value;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.marker.scale", count, value));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.marker.scale", count, value));
             }
             case "default" -> {
                 for (MarkerData.TeleportMarker m : targets) {
@@ -297,7 +297,7 @@ public class CustomiseCommands {
                     m.opacity = config.markerOpacity;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.marker.default", count));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.marker.default", count));
             }
             case "default_sub" -> {
                 String sub = StringArgumentType.getString(ctx, "subproperty").toLowerCase();
@@ -307,13 +307,13 @@ public class CustomiseCommands {
                         case "scale" -> m.scale = config.markerScale;
                         case "colour" -> m.colour = config.markerColour;
                         default -> {
-                            ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_subproperty", sub));
+                            ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_subproperty", sub));
                             return 0;
                         }
                     }
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.marker.default_sub", count, sub));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.marker.default_sub", count, sub));
             }
         }
 
@@ -321,8 +321,8 @@ public class CustomiseCommands {
     }
 
     private static int executeLineCustomise(CommandContext<FabricClientCommandSource> ctx, String property, String targetType, int radiusFlag) {
-        ClientPlayerEntity player = ctx.getSource().getPlayer();
-        Vec3d playerPos = player != null ? new Vec3d(player.getX(), player.getY(), player.getZ()) : null;
+        LocalPlayer player = ctx.getSource().getPlayer();
+        Vec3 playerPos = player != null ? new Vec3(player.getX(), player.getY(), player.getZ()) : null;
         double radius = radiusFlag == 0 ? DoubleArgumentType.getDouble(ctx, "radius") : -1;
 
         List<MarkerData.MarkerConnection> targets = resolveLineTargets(targetType, playerPos, radius, ctx);
@@ -338,7 +338,7 @@ public class CustomiseCommands {
                     c.lineOpacity = value;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.line.opacity", count, value));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.line.opacity", count, value));
             }
             case "colour" -> {
                 String hex = StringArgumentType.getString(ctx, "hex").trim();
@@ -346,14 +346,14 @@ public class CustomiseCommands {
                 try {
                     colour = Integer.parseInt(hex.replace("#", ""), 16);
                 } catch (NumberFormatException e) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_hex", hex));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_hex", hex));
                     return 0;
                 }
                 for (MarkerData.MarkerConnection c : targets) {
                     c.lineColour = colour;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.line.colour", count, hex));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.line.colour", count, hex));
             }
             case "thickness" -> {
                 float value = FloatArgumentType.getFloat(ctx, "value");
@@ -361,7 +361,7 @@ public class CustomiseCommands {
                     c.lineThickness = value;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.line.thickness", count, value));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.line.thickness", count, value));
             }
             case "default" -> {
                 for (MarkerData.MarkerConnection c : targets) {
@@ -370,7 +370,7 @@ public class CustomiseCommands {
                     c.lineThickness = -1;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.line.default", count));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.line.default", count));
             }
             case "default_sub" -> {
                 String sub = StringArgumentType.getString(ctx, "subproperty").toLowerCase();
@@ -380,13 +380,13 @@ public class CustomiseCommands {
                         case "thickness" -> c.lineThickness = -1;
                         case "colour" -> c.lineColour = -1;
                         default -> {
-                            ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_subproperty", sub));
+                            ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_subproperty", sub));
                             return 0;
                         }
                     }
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.line.default_sub", count, sub));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.line.default_sub", count, sub));
             }
         }
 
@@ -394,8 +394,8 @@ public class CustomiseCommands {
     }
 
     private static int executeCircleCustomise(CommandContext<FabricClientCommandSource> ctx, String property, String targetType, int radiusFlag) {
-        ClientPlayerEntity player = ctx.getSource().getPlayer();
-        Vec3d playerPos = player != null ? new Vec3d(player.getX(), player.getY(), player.getZ()) : null;
+        LocalPlayer player = ctx.getSource().getPlayer();
+        Vec3 playerPos = player != null ? new Vec3(player.getX(), player.getY(), player.getZ()) : null;
         double radius = radiusFlag == 0 ? DoubleArgumentType.getDouble(ctx, "radius") : -1;
 
         List<MarkerData.TeleportMarker> targets = resolveCircleTargets(targetType, playerPos, radius, ctx);
@@ -411,7 +411,7 @@ public class CustomiseCommands {
                     m.circleOpacity = value;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.circle.opacity", count, value));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.circle.opacity", count, value));
             }
             case "colour" -> {
                 String hex = StringArgumentType.getString(ctx, "hex").trim();
@@ -419,14 +419,14 @@ public class CustomiseCommands {
                 try {
                     colour = Integer.parseInt(hex.replace("#", ""), 16);
                 } catch (NumberFormatException e) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_hex", hex));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_hex", hex));
                     return 0;
                 }
                 for (MarkerData.TeleportMarker m : targets) {
                     m.circleColour = colour;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.circle.colour", count, hex));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.circle.colour", count, hex));
             }
             case "thickness" -> {
                 float value = FloatArgumentType.getFloat(ctx, "value");
@@ -434,7 +434,7 @@ public class CustomiseCommands {
                     m.circleThickness = value;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.circle.thickness", count, value));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.circle.thickness", count, value));
             }
             case "segments" -> {
                 float value = FloatArgumentType.getFloat(ctx, "value");
@@ -442,7 +442,7 @@ public class CustomiseCommands {
                     m.circleSegmentPercent = value;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.circle.segments", count, value));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.circle.segments", count, value));
             }
             case "default" -> {
                 for (MarkerData.TeleportMarker m : targets) {
@@ -452,7 +452,7 @@ public class CustomiseCommands {
                     m.circleSegmentPercent = -1.0f;
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.circle.default", count));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.circle.default", count));
             }
             case "default_sub" -> {
                 String sub = StringArgumentType.getString(ctx, "subproperty").toLowerCase();
@@ -463,13 +463,13 @@ public class CustomiseCommands {
                         case "colour" -> m.circleColour = -1;
                         case "segments" -> m.circleSegmentPercent = -1.0f;
                         default -> {
-                            ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_subproperty", sub));
+                            ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_subproperty", sub));
                             return 0;
                         }
                     }
                     count++;
                 }
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.circle.default_sub", count, sub));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.circle.default_sub", count, sub));
             }
         }
 
@@ -480,31 +480,31 @@ public class CustomiseCommands {
     // Target resolution
     // -----------------------------------------------------------------------
 
-    private static List<MarkerData.TeleportMarker> resolveMarkerTargets(String targetType, Vec3d playerPos, double radius, CommandContext<FabricClientCommandSource> ctx) {
+    private static List<MarkerData.TeleportMarker> resolveMarkerTargets(String targetType, Vec3 playerPos, double radius, CommandContext<FabricClientCommandSource> ctx) {
         List<MarkerData.TeleportMarker> result = new ArrayList<>();
 
         switch (targetType.toLowerCase()) {
             case "selected" -> {
                 if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_selected_markers"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_selected_markers"));
                     return null;
                 }
                 result.addAll(BoshysBTEUtils.selectedMarkers);
             }
             case "all" -> {
                 if (BoshysBTEUtils.markers.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_markers"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_markers"));
                     return null;
                 }
                 result.addAll(BoshysBTEUtils.markers);
             }
             case "inrange" -> {
                 if (BoshysBTEUtils.markers.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_markers"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_markers"));
                     return null;
                 }
                 if (playerPos == null) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_player_pos"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_player_pos"));
                     return null;
                 }
                 for (MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
@@ -513,12 +513,12 @@ public class CustomiseCommands {
                     }
                 }
                 if (result.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_markers_in_range", radius));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_markers_in_range", radius));
                     return null;
                 }
             }
             default -> {
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_target", targetType));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_target", targetType));
                 return null;
             }
         }
@@ -526,31 +526,31 @@ public class CustomiseCommands {
         return result;
     }
 
-    private static List<MarkerData.MarkerConnection> resolveLineTargets(String targetType, Vec3d playerPos, double radius, CommandContext<FabricClientCommandSource> ctx) {
+    private static List<MarkerData.MarkerConnection> resolveLineTargets(String targetType, Vec3 playerPos, double radius, CommandContext<FabricClientCommandSource> ctx) {
         List<MarkerData.MarkerConnection> result = new ArrayList<>();
 
         switch (targetType.toLowerCase()) {
             case "selected" -> {
                 if (BoshysBTEUtils.selectedConnections.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_selected_lines"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_selected_lines"));
                     return null;
                 }
                 result.addAll(BoshysBTEUtils.selectedConnections);
             }
             case "all" -> {
                 if (BoshysBTEUtils.markerConnections.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_lines"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_lines"));
                     return null;
                 }
                 result.addAll(BoshysBTEUtils.markerConnections);
             }
             case "inrange" -> {
                 if (BoshysBTEUtils.markerConnections.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_lines"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_lines"));
                     return null;
                 }
                 if (playerPos == null) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_player_pos"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_player_pos"));
                     return null;
                 }
                 // A line is "in range" if either of its connected markers is in range
@@ -560,12 +560,12 @@ public class CustomiseCommands {
                     }
                 }
                 if (result.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_lines_in_range", radius));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_lines_in_range", radius));
                     return null;
                 }
             }
             default -> {
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_target", targetType));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_target", targetType));
                 return null;
             }
         }
@@ -573,13 +573,13 @@ public class CustomiseCommands {
         return result;
     }
 
-    private static List<MarkerData.TeleportMarker> resolveCircleTargets(String targetType, Vec3d playerPos, double radius, CommandContext<FabricClientCommandSource> ctx) {
+    private static List<MarkerData.TeleportMarker> resolveCircleTargets(String targetType, Vec3 playerPos, double radius, CommandContext<FabricClientCommandSource> ctx) {
         List<MarkerData.TeleportMarker> result = new ArrayList<>();
 
         switch (targetType.toLowerCase()) {
             case "selected" -> {
                 if (BoshysBTEUtils.selectedMarkers.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_selected_markers"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_selected_markers"));
                     return null;
                 }
                 for (MarkerData.TeleportMarker m : BoshysBTEUtils.selectedMarkers) {
@@ -588,7 +588,7 @@ public class CustomiseCommands {
                     }
                 }
                 if (result.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_selected_circles"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_selected_circles"));
                     return null;
                 }
             }
@@ -599,17 +599,17 @@ public class CustomiseCommands {
                     }
                 }
                 if (result.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_circles"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_circles"));
                     return null;
                 }
             }
             case "inrange" -> {
                 if (BoshysBTEUtils.markers.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_markers"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_markers"));
                     return null;
                 }
                 if (playerPos == null) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_player_pos"));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_player_pos"));
                     return null;
                 }
                 for (MarkerData.TeleportMarker m : BoshysBTEUtils.markers) {
@@ -618,12 +618,12 @@ public class CustomiseCommands {
                     }
                 }
                 if (result.isEmpty()) {
-                    ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.no_circles_in_range", radius));
+                    ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.no_circles_in_range", radius));
                     return null;
                 }
             }
             default -> {
-                ctx.getSource().sendFeedback(Text.translatable("command.boshysbteutils.customise.invalid_target", targetType));
+                ctx.getSource().sendFeedback(Component.translatable("command.boshysbteutils.customise.invalid_target", targetType));
                 return null;
             }
         }

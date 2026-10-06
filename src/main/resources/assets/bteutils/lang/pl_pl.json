@@ -114,8 +114,8 @@
   "command.boshysbteutils.kml.import.normal": "§aMożesz teraz normalnie korzystać z Minecrafta.",
   "command.boshysbteutils.kml.import.progress": "Punkt %d/%d",
   "command.boshysbteutils.kml.import.progress.detailed": "Punkt %d/%d§e - Przesunięto o %.1f bloków",
-  "command.boshysbteutils.kml.import.title.active": "§c§lTrwa importowanie",
-  "command.boshysbteutils.kml.import.subtitle.dont_move": "§eNie ruszaj się do końca!",
+  "command.boshysbteutils.kml.import.title.active": "Trwa importowanie",
+  "command.boshysbteutils.kml.import.subtitle.dont_move": "Nie ruszaj się do końca!",
   "command.boshysbteutils.kml.import.timeout_warning": "§ePunkt %d§e przekroczył limit czasu (wykryto lag), kontynuowanie...",
   "command.boshysbteutils.kml.import.in_progress": "§cImport KML już trwa! Proszę czekać...",
   "command.boshysbteutils.kml.import.no_points": "§cNie znaleziono prawidłowych współrzędnych w pliku KML!",
@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "Domyślny kolor dla obrysów okręgów w formacie hex",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "Domyślne krycie okręgu",
   "command.boshysbteutils.customise.circle.segments": "§aZaktualizowano rozmiar segmentu §f%d§a okręgu/okręgów do §f%.2f§a!",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Domyślne krycie dla obrysów okręgów (0,0 do 1,0)"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "Domyślne krycie dla obrysów okręgów (0,0 do 1,0)",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§lOSTRZEŻENIE:§r§e Funkcja przezroczystości dla nakładek nie działa w Minecraft 26.2 i wszystkie nakładki będą miały ciemne zabarwienie z powodu problemu z renderowaniem. Przepraszamy!"
 }

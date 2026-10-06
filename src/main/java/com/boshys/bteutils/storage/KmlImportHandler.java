@@ -4,9 +4,10 @@ import com.boshys.bteutils.BoshysBTEUtils;
 import com.boshys.bteutils.config.BoshysBTEUtilsConfig;
 import com.boshys.bteutils.data.MarkerData;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -39,8 +40,8 @@ public class KmlImportHandler {
 
     // Enhanced teleport detection for bad ping
     private boolean waitingForTeleport = false;
-    private Vec3d positionBeforeTpll = null;
-    private Vec3d lastCheckedPosition = null;
+    private Vec3 positionBeforeTpll = null;
+    private Vec3 lastCheckedPosition = null;
     private int teleportCheckTicks = 0;
     private static final int TELEPORT_TIMEOUT_TICKS = 100; // 5 seconds max wait
     private static final double MINIMUM_MOVEMENT = 0.001; // Changed from 0.5 to 0.001 for precise detection
@@ -54,11 +55,16 @@ public class KmlImportHandler {
     // Cooldown counter
     private int cooldownTicks = 0;
 
+    // Creative mode switch tracking after completion
+    private boolean waitingForCreativeCommand = false;
+
     // Multiple KML import queue
     private List<String> kmlFileQueue = new ArrayList<>();
     private int currentKmlFileIndex = 0;
     private boolean isProcessingQueue = false;
     private int queueDelayTicks = 0;
+    private java.util.UUID kmlBossBarId = null;
+    private net.minecraft.client.gui.components.LerpingBossEvent kmlBossBarEvent = null;
     private boolean waitingBetweenFiles = false;
 
     public KmlImportHandler(BoshysBTEUtils mod) {
@@ -66,14 +72,14 @@ public class KmlImportHandler {
     }
 
     public boolean isImporting() {
-        return isKmlImporting || kmlImportWaitingToStart;
+        return isKmlImporting || kmlImportWaitingToStart || waitingForCreativeCommand;
     }
 
     public boolean isProcessingQueue() {
         return isProcessingQueue;
     }
 
-    public void tick(MinecraftClient client) {
+    public void tick(Minecraft client) {
         if (kmlImportWaitingToStart) {
             if (kmlImportStartDelayTicks > 0) {
                 kmlImportStartDelayTicks--;
@@ -90,16 +96,29 @@ public class KmlImportHandler {
             inWorldEditSetupPhase = false;
             inSpectatorSetupPhase = false;
             cooldownTicks = 0;
+            waitingForCreativeCommand = false;
             positionBeforeTpll = null;
             lastCheckedPosition = null;
 
             showImportTitle(client,
-                    Text.translatable("command.boshysbteutils.kml.import.title.active").getString(),
-                    Text.translatable("command.boshysbteutils.kml.import.subtitle.dont_move").getString()
+                    Component.translatable("command.boshysbteutils.kml.import.title.active").getString(),
+                    Component.translatable("command.boshysbteutils.kml.import.subtitle.dont_move").getString()
             );
 
             // Always start with spectator setup, regardless of WorldEdit lines setting
             startSpectatorSetup(client);
+            return;
+        }
+
+        if (waitingForCreativeCommand) {
+            if (cooldownTicks > 0) {
+                cooldownTicks--;
+                return;
+            }
+            waitingForCreativeCommand = false;
+            if (client.player != null) {
+                client.player.connection.sendCommand("gamemode creative");
+            }
             return;
         }
 
@@ -150,14 +169,14 @@ public class KmlImportHandler {
                 return;
             }
 
-            Vec3d currentPos = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
+            Vec3 currentPos = new Vec3(client.player.getX(), client.player.getY(), client.player.getZ());
             double distanceMoved = currentPos.distanceTo(positionBeforeTpll);
 
             // Update title with progress
             if (teleportCheckTicks % 20 == 0) { // Update every second
                 showImportTitle(client,
-                        Text.translatable("command.boshysbteutils.kml.import.title.active").getString(),
-                        Text.translatable("command.boshysbteutils.kml.import.progress",
+                        Component.translatable("command.boshysbteutils.kml.import.title.active").getString(),
+                        Component.translatable("command.boshysbteutils.kml.import.progress",
                                 kmlCurrentPointIndex + 1, pendingKmlPoints.size()).getString()
                 );
             }
@@ -230,8 +249,8 @@ public class KmlImportHandler {
      * Stops any active KML import, including queued imports.
      * Clears all import state so a new import can be started cleanly.
      */
-    public void stopImport(MinecraftClient client) {
-        boolean wasActive = isKmlImporting || kmlImportWaitingToStart || isProcessingQueue;
+    public void stopImport(Minecraft client) {
+        boolean wasActive = isKmlImporting || kmlImportWaitingToStart || isProcessingQueue || waitingForCreativeCommand;
 
         // Reset all import state
         isKmlImporting = false;
@@ -264,6 +283,7 @@ public class KmlImportHandler {
         setupCommands.clear();
 
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
 
         kmlFileQueue.clear();
         currentKmlFileIndex = 0;
@@ -272,28 +292,23 @@ public class KmlImportHandler {
         waitingBetweenFiles = false;
 
         // Clear the import title/subtitle from screen
-        if (client != null && client.inGameHud != null) {
-            client.inGameHud.setTitle(Text.literal(""));
-            client.inGameHud.setSubtitle(Text.literal(""));
-        }
+        clearBossBar(client);
 
         // Notify user
         if (client != null && client.player != null) {
             if (wasActive) {
-                client.player.sendMessage(
-                        Text.translatable("command.boshysbteutils.kml.import.stopped").formatted(net.minecraft.util.Formatting.YELLOW),
-                        false
+                client.player.sendSystemMessage(
+                        Component.translatable("command.boshysbteutils.kml.import.stopped").withStyle(net.minecraft.ChatFormatting.YELLOW)
                 );
             } else {
-                client.player.sendMessage(
-                        Text.translatable("command.boshysbteutils.kml.import.no_active").formatted(net.minecraft.util.Formatting.RED),
-                        false
+                client.player.sendSystemMessage(
+                        Component.translatable("command.boshysbteutils.kml.import.no_active").withStyle(net.minecraft.ChatFormatting.RED)
                 );
             }
         }
     }
 
-    private void startSpectatorSetup(MinecraftClient client) {
+    private void startSpectatorSetup(Minecraft client) {
         inSpectatorSetupPhase = true;
         setupCommandIndex = 0;
         setupCommands.clear();
@@ -305,7 +320,7 @@ public class KmlImportHandler {
         executeNextSpectatorSetupCommand(client);
     }
 
-    private void executeNextSpectatorSetupCommand(MinecraftClient client) {
+    private void executeNextSpectatorSetupCommand(Minecraft client) {
         if (!isKmlImporting || client.player == null) {
             inSpectatorSetupPhase = false;
             return;
@@ -328,11 +343,11 @@ public class KmlImportHandler {
         String command = setupCommands.get(setupCommandIndex);
         setupCommandIndex++;
 
-        client.player.networkHandler.sendChatCommand(command);
+        client.player.connection.sendCommand(command);
         cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
     }
 
-    private void startWorldEditSetup(MinecraftClient client) {
+    private void startWorldEditSetup(Minecraft client) {
         inWorldEditSetupPhase = true;
         setupCommandIndex = 0;
         setupCommands.clear();
@@ -344,7 +359,7 @@ public class KmlImportHandler {
         executeNextSetupCommand(client);
     }
 
-    private void executeNextSetupCommand(MinecraftClient client) {
+    private void executeNextSetupCommand(Minecraft client) {
         if (!isKmlImporting || client.player == null) {
             inWorldEditSetupPhase = false;
             return;
@@ -362,11 +377,11 @@ public class KmlImportHandler {
         String command = setupCommands.get(setupCommandIndex);
         setupCommandIndex++;
 
-        client.player.networkHandler.sendChatCommand(command);
+        client.player.connection.sendCommand(command);
         cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
     }
 
-    private void processNextKmlPoint(MinecraftClient client) {
+    private void processNextKmlPoint(Minecraft client) {
         if (!isKmlImporting || client.player == null) {
             return;
         }
@@ -382,20 +397,20 @@ public class KmlImportHandler {
         String tpllCommand = buildTpllCommand(point);
 
         // Store position before TPLL for teleport detection
-        positionBeforeTpll = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
+        positionBeforeTpll = new Vec3(client.player.getX(), client.player.getY(), client.player.getZ());
         lastCheckedPosition = null;
         stablePositionTicks = 0;
         teleportCheckTicks = 0;
 
-        client.player.networkHandler.sendChatCommand(tpllCommand);
+        client.player.connection.sendCommand(tpllCommand);
 
         waitingForTeleport = true;
 
         // Show initial progress
         if (kmlCurrentPointIndex % 5 == 0 || kmlCurrentPointIndex >= pendingKmlPoints.size() - 1) {
             showImportTitle(client,
-                    Text.translatable("command.boshysbteutils.kml.import.title.active").getString(),
-                    Text.translatable("command.boshysbteutils.kml.import.progress",
+                    Component.translatable("command.boshysbteutils.kml.import.title.active").getString(),
+                    Component.translatable("command.boshysbteutils.kml.import.progress",
                             kmlCurrentPointIndex + 1, pendingKmlPoints.size()).getString()
             );
         }
@@ -415,7 +430,7 @@ public class KmlImportHandler {
         switch (mode) {
             case AUTOMATIC:
                 // No altitude argument - places at highest non-air block
-                return commandPrefix + " " + point.latitude + ", " + point.longitude;
+                return commandPrefix + " " + point.latitude + "," + point.longitude;
 
             case KML_ALTITUDES:
                 // Use altitude from KML file plus offset
@@ -432,18 +447,18 @@ public class KmlImportHandler {
 
         if (includeAltitude) {
             // Format: /tpll <lat>, <lon> <altitude>
-            return commandPrefix + " " + point.latitude + ", " + point.longitude + " " + altitude;
+            return commandPrefix + " " + point.latitude + "," + point.longitude + " " + altitude;
         }
 
-        return commandPrefix + " " + point.latitude + ", " + point.longitude;
+        return commandPrefix + " " + point.latitude + "," + point.longitude;
     }
 
-    public void onMarkerPlaced(MinecraftClient client) {
+    public void onMarkerPlaced(Minecraft client) {
         // Backup detection method via mixin
         if (!isKmlImporting || !waitingForTeleport) return;
 
         if (client.player != null && positionBeforeTpll != null) {
-            Vec3d currentPos = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
+            Vec3 currentPos = new Vec3(client.player.getX(), client.player.getY(), client.player.getZ());
             if (currentPos.distanceTo(positionBeforeTpll) > MINIMUM_MOVEMENT) {
                 waitingForTeleport = false;
                 placeMarkerAndContinue(client, false);
@@ -451,11 +466,11 @@ public class KmlImportHandler {
         }
     }
 
-    private void placeMarkerAndContinue(MinecraftClient client) {
+    private void placeMarkerAndContinue(Minecraft client) {
         placeMarkerAndContinue(client, false);
     }
 
-    private void placeMarkerAndContinue(MinecraftClient client, boolean forced) {
+    private void placeMarkerAndContinue(Minecraft client, boolean forced) {
         if (client.player == null) {
             kmlCurrentPointIndex++;
             return;
@@ -463,7 +478,7 @@ public class KmlImportHandler {
 
         // Place marker at current position (where player teleported to)
         MarkerData.TeleportMarker newMarker = MarkerData.addMarker(
-                new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ())
+                new Vec3(client.player.getX(), client.player.getY(), client.player.getZ())
         );
 
         // Auto-connect with previous marker only if auto-line-connection is enabled
@@ -479,10 +494,9 @@ public class KmlImportHandler {
 
         // Send action bar message if forced (timeout)
         if (forced && client.player != null) {
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.import.timeout_warning",
-                            kmlCurrentPointIndex + 1).formatted(net.minecraft.util.Formatting.YELLOW),
-                    true
+            client.player.sendSystemMessage(
+                    Component.translatable("command.boshysbteutils.kml.import.timeout_warning",
+                            kmlCurrentPointIndex + 1).withStyle(net.minecraft.ChatFormatting.YELLOW)
             );
         }
 
@@ -529,7 +543,7 @@ public class KmlImportHandler {
         }
     }
 
-    private void executeNextWorldEditCommand(MinecraftClient client) {
+    private void executeNextWorldEditCommand(Minecraft client) {
         if (!isKmlImporting || client.player == null) {
             waitingForWorldEditCommand = false;
             return;
@@ -553,11 +567,11 @@ public class KmlImportHandler {
         String command = worldEditCommandQueue.get(worldEditCommandIndex);
         worldEditCommandIndex++;
 
-        client.player.networkHandler.sendChatCommand(command);
+        client.player.connection.sendCommand(command);
         worldEditCommandTickCounter = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
     }
 
-    private void executeNextPostCommand(MinecraftClient client) {
+    private void executeNextPostCommand(Minecraft client) {
         if (!isKmlImporting || client.player == null) {
             kmlWaitingForPostCommand = false;
             return;
@@ -577,37 +591,73 @@ public class KmlImportHandler {
         if (cmd.startsWith("//")) {
             commandToSend = cmd.substring(1);
         }
-        client.player.networkHandler.sendChatCommand(commandToSend);
+        client.player.connection.sendCommand(commandToSend);
 
         kmlPostCommandTickCounter = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
     }
 
-    private void showImportTitle(MinecraftClient client, String title, String subtitle) {
-        if (client.player != null && client.inGameHud != null) {
-            client.inGameHud.setTitle(Text.literal(title));
-            client.inGameHud.setSubtitle(Text.literal(subtitle));
+    private void showImportTitle(Minecraft client, String title, String subtitle) {
+        if (client.player != null) {
+            String cleanTitle = stripFormatting(title);
+            String cleanSubtitle = stripFormatting(subtitle);
+            float progress = pendingKmlPoints.isEmpty() ? 1.0f : (float) kmlCurrentPointIndex / pendingKmlPoints.size();
+            net.minecraft.network.chat.Component name = net.minecraft.network.chat.Component.literal(cleanTitle + " - " + cleanSubtitle)
+                    .withStyle(ChatFormatting.RED, ChatFormatting.BOLD);
+
+            if (kmlBossBarId == null) {
+                kmlBossBarId = java.util.UUID.randomUUID();
+                kmlBossBarEvent = new net.minecraft.client.gui.components.LerpingBossEvent(
+                        kmlBossBarId, name, progress,
+                        net.minecraft.world.BossEvent.BossBarColor.RED,
+                        net.minecraft.world.BossEvent.BossBarOverlay.PROGRESS,
+                        false, false, false
+                );
+                net.minecraft.network.protocol.game.ClientboundBossEventPacket.createAddPacket(kmlBossBarEvent)
+                        .handle(client.player.connection);
+            } else {
+                kmlBossBarEvent.setName(name);
+                kmlBossBarEvent.setProgress(progress);
+                net.minecraft.network.protocol.game.ClientboundBossEventPacket.createUpdateNamePacket(kmlBossBarEvent)
+                        .handle(client.player.connection);
+                net.minecraft.network.protocol.game.ClientboundBossEventPacket.createUpdateProgressPacket(kmlBossBarEvent)
+                        .handle(client.player.connection);
+            }
         }
     }
 
+    private void clearBossBar(Minecraft client) {
+        if (kmlBossBarId != null && client.player != null) {
+            net.minecraft.network.protocol.game.ClientboundBossEventPacket.createRemovePacket(kmlBossBarId)
+                    .handle(client.player.connection);
+            kmlBossBarId = null;
+            kmlBossBarEvent = null;
+        }
+    }
+
+    private String stripFormatting(String text) {
+        return text == null ? "" : text.replaceAll("§[0-9a-fk-or]", "");
+    }
+
+
     public int importKmlFile(FabricClientCommandSource source, String filename) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled"));
             return 0;
         }
 
         if (BoshysBTEUtils.markersHidden) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
             return 0;
         }
 
-        if (isKmlImporting || kmlImportWaitingToStart) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.in_progress"));
+        if (isKmlImporting || kmlImportWaitingToStart || waitingForCreativeCommand) {
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.in_progress"));
             return 0;
         }
 
         String cleanFilename = filename.replaceAll("[^a-zA-Z0-9_-]", "");
         if (cleanFilename.isEmpty()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.file.invalid_name"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.file.invalid_name"));
             return 0;
         }
 
@@ -619,7 +669,7 @@ public class KmlImportHandler {
         }
 
         if (!kmlFile.exists()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.file_not_found",
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.file_not_found",
                     cleanFilename, kmlPath.toString()));
             return 0;
         }
@@ -627,7 +677,7 @@ public class KmlImportHandler {
         List<MarkerData.KmlPoint> points = parseKmlFile(kmlFile);
 
         if (points.isEmpty()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.no_points"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.no_points"));
             return 0;
         }
 
@@ -655,10 +705,13 @@ public class KmlImportHandler {
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
         isProcessingQueue = false;
         kmlFileQueue.clear();
+        kmlBossBarId = null;
+        kmlBossBarEvent = null;
 
         // FIX: Reset marker connection state to prevent spurious connections
         // between consecutive KML imports
@@ -669,9 +722,9 @@ public class KmlImportHandler {
         kmlImportWaitingToStart = true;
         kmlImportStartDelayTicks = BoshysBTEUtils.getConfig().kmlImportStartDelaySeconds * 20;
 
-        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.started").formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
-        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.warning").formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
-        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.details",
+        source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.started").withStyle(net.minecraft.ChatFormatting.YELLOW, net.minecraft.ChatFormatting.BOLD));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.warning").withStyle(net.minecraft.ChatFormatting.YELLOW, net.minecraft.ChatFormatting.BOLD));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.details",
                 points.size(), BoshysBTEUtils.getConfig().kmlImportDelayTicks));
 
         // Show altitude mode info
@@ -684,10 +737,10 @@ public class KmlImportHandler {
         };
 
         String offsetStr = offset != 0 ? " (offset: " + (offset > 0 ? "+" : "") + offset + ")" : "";
-        source.sendFeedback(Text.literal("§eAltitude mode: " + modeStr + offsetStr));
+        source.sendFeedback(Component.literal("\u00a7eAltitude mode: " + modeStr + offsetStr));
 
         if (BoshysBTEUtils.getConfig().enableWorldEditLines) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.worldedit_enabled",
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.worldedit_enabled",
                     BoshysBTEUtils.getConfig().worldEditLineBlock));
         }
 
@@ -696,22 +749,22 @@ public class KmlImportHandler {
 
     public int importMultipleKmlFiles(FabricClientCommandSource source, List<String> filenames) {
         if (!BoshysBTEUtils.getConfig().enableMarkers) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_disabled"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.error.markers_disabled"));
             return 0;
         }
 
         if (BoshysBTEUtils.markersHidden) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.error.markers_hidden"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.error.markers_hidden"));
             return 0;
         }
 
-        if (isKmlImporting || kmlImportWaitingToStart || isProcessingQueue) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.in_progress"));
+        if (isKmlImporting || kmlImportWaitingToStart || isProcessingQueue || waitingForCreativeCommand) {
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.in_progress"));
             return 0;
         }
 
         if (filenames.isEmpty()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_files"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.queue.no_files"));
             return 0;
         }
 
@@ -734,7 +787,7 @@ public class KmlImportHandler {
         }
 
         if (validFiles.isEmpty()) {
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.no_valid_files"));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.queue.no_valid_files"));
             return 0;
         }
 
@@ -744,8 +797,8 @@ public class KmlImportHandler {
         isProcessingQueue = true;
         waitingBetweenFiles = false;
 
-        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.started", validFiles.size()).formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
-        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.import.warning").formatted(net.minecraft.util.Formatting.YELLOW, net.minecraft.util.Formatting.BOLD));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.kml.queue.started", validFiles.size()).withStyle(net.minecraft.ChatFormatting.YELLOW, net.minecraft.ChatFormatting.BOLD));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.kml.import.warning").withStyle(net.minecraft.ChatFormatting.YELLOW, net.minecraft.ChatFormatting.BOLD));
 
         // Start first file
         startKmlFileImport(source, kmlFileQueue.get(0));
@@ -765,7 +818,7 @@ public class KmlImportHandler {
 
         if (points.isEmpty()) {
             // Skip this file and move to next
-            source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.skipping_empty", filename));
+            source.sendFeedback(Component.translatable("command.boshysbteutils.kml.queue.skipping_empty", filename));
             advanceQueueOrFinish(source.getClient());
             return;
         }
@@ -794,8 +847,11 @@ public class KmlImportHandler {
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
+        kmlBossBarId = null;
+        kmlBossBarEvent = null;
 
         // FIX: Reset marker connection state for each queued file import
         // to prevent spurious connections between files
@@ -806,18 +862,17 @@ public class KmlImportHandler {
         kmlImportWaitingToStart = true;
         kmlImportStartDelayTicks = BoshysBTEUtils.getConfig().kmlImportStartDelaySeconds * 20;
 
-        source.sendFeedback(Text.translatable("command.boshysbteutils.kml.queue.processing", currentKmlFileIndex + 1, kmlFileQueue.size(), filename));
+        source.sendFeedback(Component.translatable("command.boshysbteutils.kml.queue.processing", currentKmlFileIndex + 1, kmlFileQueue.size(), filename));
     }
 
-    private void finishKmlImport(MinecraftClient client) {
+    private void finishKmlImport(Minecraft client) {
         int importedCount = kmlCurrentPointIndex;
 
         if (isProcessingQueue) {
             // We're in queue mode, prepare for next file
             if (client.player != null) {
-                client.player.sendMessage(
-                        Text.translatable("command.boshysbteutils.kml.queue.file_complete", currentKmlFileName, importedCount).formatted(net.minecraft.util.Formatting.GREEN),
-                        false
+                client.player.sendSystemMessage(
+                        Component.translatable("command.boshysbteutils.kml.queue.file_complete", currentKmlFileName, importedCount).withStyle(net.minecraft.ChatFormatting.GREEN)
                 );
             }
 
@@ -828,24 +883,17 @@ public class KmlImportHandler {
         // Single file import - finish completely
         isKmlImporting = false;
 
-        if (client.player != null && client.inGameHud != null) {
-            client.inGameHud.setTitle(Text.literal(""));
-            client.inGameHud.setSubtitle(Text.literal(""));
-        }
+        clearBossBar(client);
 
         if (client.player != null) {
-            // Send advancement-like toast message (simulated via chat for now, but distinct)
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.import.complete").formatted(net.minecraft.util.Formatting.GREEN, net.minecraft.util.Formatting.BOLD),
-                    false
+            client.player.sendSystemMessage(
+                    Component.translatable("command.boshysbteutils.kml.import.complete").withStyle(net.minecraft.ChatFormatting.GREEN, net.minecraft.ChatFormatting.BOLD)
             );
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.import.success", importedCount, currentKmlFileName).formatted(net.minecraft.util.Formatting.GREEN),
-                    false
+            client.player.sendSystemMessage(
+                    Component.translatable("command.boshysbteutils.kml.import.success", importedCount, currentKmlFileName).withStyle(net.minecraft.ChatFormatting.GREEN)
             );
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.import.normal").formatted(net.minecraft.util.Formatting.GREEN),
-                    true // Action bar
+            client.player.sendSystemMessage(
+                    Component.translatable("command.boshysbteutils.kml.import.normal").withStyle(net.minecraft.ChatFormatting.GREEN)
             );
         }
 
@@ -867,14 +915,17 @@ public class KmlImportHandler {
         waitingForTeleport = false;
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
-        cooldownTicks = 0;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
         worldEditCommandQueue.clear();
         setupCommands.clear();
+
+        // Trigger creative mode command after cooldown
+        cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
+        waitingForCreativeCommand = true;
     }
 
-    private void advanceQueueOrFinish(MinecraftClient client) {
+    private void advanceQueueOrFinish(Minecraft client) {
         currentKmlFileIndex++;
 
         if (currentKmlFileIndex >= kmlFileQueue.size()) {
@@ -883,19 +934,14 @@ public class KmlImportHandler {
             isKmlImporting = false;
             kmlFileQueue.clear();
 
-            if (client.player != null && client.inGameHud != null) {
-                client.inGameHud.setTitle(Text.literal(""));
-                client.inGameHud.setSubtitle(Text.literal(""));
-            }
+            clearBossBar(client);
 
             if (client.player != null) {
-                client.player.sendMessage(
-                        Text.translatable("command.boshysbteutils.kml.queue.complete").formatted(net.minecraft.util.Formatting.GREEN, net.minecraft.util.Formatting.BOLD),
-                        false
+                client.player.sendSystemMessage(
+                        Component.translatable("command.boshysbteutils.kml.queue.complete").withStyle(net.minecraft.ChatFormatting.GREEN, net.minecraft.ChatFormatting.BOLD)
                 );
-                client.player.sendMessage(
-                        Text.translatable("command.boshysbteutils.kml.import.normal").formatted(net.minecraft.util.Formatting.GREEN),
-                        true
+                client.player.sendSystemMessage(
+                        Component.translatable("command.boshysbteutils.kml.import.normal").withStyle(net.minecraft.ChatFormatting.GREEN)
                 );
             }
 
@@ -916,13 +962,17 @@ public class KmlImportHandler {
             waitingForTeleport = false;
             inWorldEditSetupPhase = false;
             inSpectatorSetupPhase = false;
-            cooldownTicks = 0;
             positionBeforeTpll = null;
             lastCheckedPosition = null;
             worldEditCommandQueue.clear();
             setupCommands.clear();
+
+            // Trigger creative mode command after cooldown
+            cooldownTicks = BoshysBTEUtils.getConfig().kmlImportDelayTicks;
+            waitingForCreativeCommand = true;
         } else {
             // Prepare for next file
+            clearBossBar(client);
             waitingBetweenFiles = true;
             queueDelayTicks = 20; // 1 second delay between files
 
@@ -934,21 +984,17 @@ public class KmlImportHandler {
 
             // Run //sel if WorldEdit lines are enabled
             if (BoshysBTEUtils.getConfig().enableWorldEditLines && client.player != null) {
-                client.player.networkHandler.sendChatCommand("sel");
+                client.player.connection.sendCommand("sel");
             }
         }
     }
 
-    private void startNextKmlInQueue(MinecraftClient client) {
+    private void startNextKmlInQueue(Minecraft client) {
         if (!isProcessingQueue || currentKmlFileIndex >= kmlFileQueue.size()) {
             return;
         }
 
         String nextFile = kmlFileQueue.get(currentKmlFileIndex);
-
-        // Create a fake source for the next file (we'll use the client directly where needed)
-        // Actually, we need to handle this differently since we don't have the source anymore
-        // We'll store the feedback messages and display them directly
 
         Path kmlPath = MarkerStorage.getKmlSavePath();
         File kmlFile = kmlPath.resolve(nextFile + ".kml").toFile();
@@ -961,9 +1007,8 @@ public class KmlImportHandler {
 
         if (points.isEmpty()) {
             if (client.player != null) {
-                client.player.sendMessage(
-                        Text.translatable("command.boshysbteutils.kml.queue.skipping_empty", nextFile).formatted(net.minecraft.util.Formatting.YELLOW),
-                        false
+                client.player.sendSystemMessage(
+                        Component.translatable("command.boshysbteutils.kml.queue.skipping_empty", nextFile).withStyle(net.minecraft.ChatFormatting.YELLOW)
                 );
             }
             advanceQueueOrFinish(client);
@@ -994,8 +1039,11 @@ public class KmlImportHandler {
         inWorldEditSetupPhase = false;
         inSpectatorSetupPhase = false;
         cooldownTicks = 0;
+        waitingForCreativeCommand = false;
         positionBeforeTpll = null;
         lastCheckedPosition = null;
+        kmlBossBarId = null;
+        kmlBossBarEvent = null;
 
         // FIX: Reset marker connection state for each queued file import
         BoshysBTEUtils.lastAddedMarker = null;
@@ -1007,9 +1055,8 @@ public class KmlImportHandler {
         isKmlImporting = true;
 
         if (client.player != null) {
-            client.player.sendMessage(
-                    Text.translatable("command.boshysbteutils.kml.queue.processing", currentKmlFileIndex + 1, kmlFileQueue.size(), nextFile),
-                    false
+            client.player.sendSystemMessage(
+                    Component.translatable("command.boshysbteutils.kml.queue.processing", currentKmlFileIndex + 1, kmlFileQueue.size(), nextFile)
             );
         }
 

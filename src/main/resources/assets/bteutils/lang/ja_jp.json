@@ -114,8 +114,8 @@
   "command.boshysbteutils.kml.import.normal": "§aマインクラフトを通常通り使用できます。",
   "command.boshysbteutils.kml.import.progress": "ポイント %d/%d",
   "command.boshysbteutils.kml.import.progress.detailed": "ポイント %d/%d§e - %.1fブロック移動",
-  "command.boshysbteutils.kml.import.title.active": "§c§lインポート進行中",
-  "command.boshysbteutils.kml.import.subtitle.dont_move": "§e完了するまで移動しないでください！",
+  "command.boshysbteutils.kml.import.title.active": "インポート進行中",
+  "command.boshysbteutils.kml.import.subtitle.dont_move": "完了するまで移動しないでください！",
   "command.boshysbteutils.kml.import.timeout_warning": "§eポイント %d§eがタイムアウトしました (ラグを検出)、続行中...",
   "command.boshysbteutils.kml.import.in_progress": "§cKMLインポートはすでに進行中です！お待ちください...",
   "command.boshysbteutils.kml.import.no_points": "§cKMLファイルに有効な座標が見つかりません！",
@@ -417,5 +417,6 @@
   "text.autoconfig.boshysbteutils.option.circleColour.@Tooltip": "円のアウトラインのデフォルト色（Hex形式）",
   "text.autoconfig.boshysbteutils.option.circleOpacity": "デフォルトの円の不透明度",
   "command.boshysbteutils.customise.circle.segments": "§a§f%d§a個の円のセグメントサイズを§f%.2f§aに更新しました！",
-  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "円のアウトラインのデフォルト不透明度（0.0から1.0）"
+  "text.autoconfig.boshysbteutils.option.circleOpacity.@Tooltip": "円のアウトラインのデフォルト不透明度（0.0から1.0）",
+  "command.boshysbteutils.overlay.brokenwarning": "§e§l免責事項:§r§e オーバーレイの不透明度機能はMinecraft 26.2では動作せず、描画の問題によりすべてのオーバーレイが暗い色合いになります。申し訳ありません！"
 }
