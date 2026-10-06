@@ -1,6 +1,6 @@
 # Boshys-BTE-Utils
 Boshy's helpful utilities when building in the Build The Earth project. [THIS IS NOT OFFICIAL BY THE BTE DEV TEAM]
-- This mod works on Minecraft version 26.3 on Fabric.
+- This mod works on Minecraft versions 26.3, 26.2 and 1.21.10, with fabric
 - This mod also requires Mod Menu, Cloth Config, and Fabric API.
 
 ## How to connect TPLL to a keybind:
